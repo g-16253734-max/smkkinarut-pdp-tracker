@@ -65,7 +65,7 @@ try:
 
     with tab_rekod:
         if df_jadual.empty:
-            st.warning("Sila pastikan fail 'Guru 26Jan.pdf' ada dalam folder aplikasi.")
+            st.warning("Sila pastikan fail 'Tracker.pdf' ada dalam folder aplikasi.")
         else:
             col_side1, col_side2 = st.columns([1, 3])
             
@@ -113,30 +113,33 @@ try:
                 st.write("### Senarai Untuk Dihantar:")
                 st.table(df_to_save)
                 
-                if st.button("🚀 HANTAR LAPORAN SEKARANG"):
+                                if st.button("🚀 HANTAR LAPORAN SEKARANG"):
                     try:
-                        # 1. AMBIL data sedia ada dari Google Sheets
+                        # 1. Ambil data sedia ada
                         existing_data = conn.read()
                         
-                        # 2. GABUNGKAN data lama dengan data baru (Append)
-                        if existing_data is not None and not existing_data.empty:
-                            # Bersihkan sebarang baris kosong (jika ada)
-                            existing_data = existing_data.dropna(how='all')
-                            updated_data = pd.concat([existing_data, df_to_save], ignore_index=True)
-                        else:
-                            updated_data = df_to_save
+                        # 2. Buat DataFrame baru untuk dihantar (buang kolum 'id' sebab kita tak perlu simpan dalam Sheets)
+                        df_to_save_clean = df_to_save.drop(columns=['id'], errors='ignore')
                         
-                        # 3. SIMPAN semula semua data yang telah digabungkan
+                        # 3. Gabungkan
+                        if existing_data is not None and not existing_data.empty:
+                            # Buang baris kosong & pastikan kolum sama
+                            existing_data = existing_data.dropna(how='all').iloc[:, :6] 
+                            updated_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
+                        else:
+                            updated_data = df_to_save_clean
+                        
+                        # 4. Hantar ke Sheets
                         conn.update(data=updated_data)
                         
-                        # Kosongkan memori sementara selepas berjaya
+                        # Reset UI
                         st.session_state.rekod_temp = {}
-                        st.success("Rekod berjaya ditambah ke dalam pangkalan data!")
+                        st.success("Rekod berjaya disimpan!")
                         st.balloons()
                         st.rerun()
                         
                     except Exception as e:
-                        st.error(f"Gagal mengemaskini Google Sheets: {e}")
+                        st.error(f"Gagal: {e}")
 
 
     with tab_analisis:
@@ -211,4 +214,5 @@ try:
 
 except Exception as e:
     st.error(f"Ralat sistem: {e}")
+
 
