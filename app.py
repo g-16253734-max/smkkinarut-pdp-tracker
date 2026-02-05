@@ -58,7 +58,7 @@ st.title("📊 e-PdP Tracker SMK Kinarut")
 
 try:
     # Memuatkan data dari PDF
-    df_jadual = muat_data_pdf("Guru 26Jan.pdf")
+    df_jadual = muat_data_pdf("Tracker.pdf")
     
     # --- TAB MENU ---
     tab_rekod, tab_analisis = st.tabs(["📝 Rekod Kehadiran", "📈 Analisis & Laporan"])
@@ -170,3 +170,4 @@ try:
 
 except Exception as e:
     st.error(f"Ralat sistem: {e}")
+
