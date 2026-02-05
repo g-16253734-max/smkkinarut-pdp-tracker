@@ -58,7 +58,7 @@ st.title("📊 e-PdP Tracker SMK Kinarut")
 
 try:
     # Memuatkan data dari PDF
-    df_jadual = muat_data_pdf("Guru 26Jan.pdf")
+    df_jadual = muat_data_pdf("Tracker.pdf")
     
     # --- TAB MENU ---
     tab_rekod, tab_analisis = st.tabs(["📝 Rekod Kehadiran", "📈 Analisis & Laporan"])
@@ -165,3 +165,4 @@ try:
                 st.dataframe(df_filtered.sort_values('Tarikh', ascending=False), use_container_width=True)
             else:
                 st.info("Tiada rekod ditemui untuk
+
