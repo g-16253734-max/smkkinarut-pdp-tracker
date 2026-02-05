@@ -19,6 +19,7 @@ if 'rekod_temp' not in st.session_state:
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
+    # Peta Masa
     PETA_BIASA = {1:("6:40","7:00"), 2:("7:00","7:30"), 3:("7:30","8:00"), 4:("8:00","8:30"), 5:("8:30","9:00"), 6:("9:00","9:30"), 7:("9:30","10:00"), 8:("10:00","10:30"), 9:("10:30","11:00"), 10:("11:00","11:30"), 11:("11:30","12:00"), 12:("12:00","12:30"), 13:("12:30","1:00"), 14:("1:00","1:30"), 15:("1:30","2:00"), 16:("2:00","2:30"), 17:("2:30","3:00")}
     PETA_JUMAAT = {1:("6:40","7:10"), 2:("7:10","7:40"), 3:("7:40","8:10"), 4:("8:10","8:40"), 5:("8:40","9:10"), 6:("9:10","9:40"), 7:("9:40","10:10"), 8:("10:10","10:40"), 9:("10:40","11:10"), 10:("11:10","11:40"), 11:("11:40","12:10"), 12:("12:10","12:40")}
     
@@ -36,32 +37,35 @@ def muat_data_pdf(file_path):
                     hari = row[0].strip().upper() if row[0] else ""
                     if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
                         
-                        for i in range(1, len(row)):
-                            isi_semasa = row[i].replace("\n", " ").strip() if row[i] else ""
+                        # Kita proses baris ini untuk "isi" tempat kosong yang disebabkan merged cells
+                        processed_row = list(row)
+                        for i in range(1, len(processed_row)):
+                            # Jika slot sekarang KOSONG, cuba ambil dari slot SEBELUMNYA
+                            if (processed_row[i] is None or processed_row[i].strip() == ""):
+                                # SYARAT: Jangan tarik jika ini slot REHAT (Contoh: Slot 7)
+                                # Dan jangan tarik jika slot SEBELUMNYA juga kosong
+                                if i != 7 and i > 1:
+                                    isi_sebelum = processed_row[i-1].replace("\n", " ").strip()
+                                    # Kita hanya tarik jika ada isi (bukan kosong)
+                                    if isi_sebelum != "":
+                                        processed_row[i] = isi_sebelum
+
+                        # Selepas baris dibersihkan, baru masukkan dalam data
+                        for i in range(1, len(processed_row)):
+                            isi_final = processed_row[i].replace("\n", " ").strip() if processed_row[i] else ""
                             
-                            # --- LOGIK BARU: HANYA AMBIL JIKA ADA ISI ---
-                            # Kita tidak lagi "memaksa" isi dari slot sebelumnya.
-                            # PDFPlumber biasanya akan letak None atau "" pada cell yang merged.
-                            # Tetapi jadual ASC Timetables biasanya letak isi pada cell pertama sahaja.
-                            
-                            if isi_semasa:
+                            if isi_final:
                                 mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
                                 slot_id = f"{nama_guru}_{hari}_{i}"
                                 all_data.append({
                                     "id": slot_id, 
                                     "Guru": nama_guru, 
                                     "Hari": hari, 
-                                    "Isi": isi_semasa, 
+                                    "Isi": isi_final, 
                                     "Masa": f"{mula}-{tamat}"
                                 })
-        
-        df = pd.DataFrame(all_data)
-        
-        # --- PROSES TAMBAHAN: MENGISI SLOT KOSONG YANG MERGED (SETELAH JADI DATAFRAME) ---
-        # Ini lebih selamat. Kita hanya isi jika slot itu benar-benar bersebelahan.
-        # Kita tak buat dalam loop tadi supaya dia tak "terbabas" sampai petang.
-        
-        return df
+                                
+        return pd.DataFrame(all_data)
     except Exception as e:
         st.error(f"Gagal membaca PDF: {e}")
         return pd.DataFrame()
@@ -142,5 +146,6 @@ try:
 
 except Exception as e:
     st.error(f"Ralat: {e}")
+
 
 
