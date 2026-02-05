@@ -58,7 +58,7 @@ st.title("📊 e-PdP Tracker SMK Kinarut")
 
 try:
     # Memuatkan data dari PDF
-    df_jadual = muat_data_pdf("Tracker.pdf")
+    df_jadual = muat_data_pdf("Guru 26Jan.pdf")
     
     # --- TAB MENU ---
     tab_rekod, tab_analisis = st.tabs(["📝 Rekod Kehadiran", "📈 Analisis & Laporan"])
@@ -164,6 +164,9 @@ try:
                 st.subheader("📋 Senarai Rekod Penuh")
                 st.dataframe(df_filtered.sort_values('Tarikh', ascending=False), use_container_width=True)
             else:
-               st.info("Tiada rekod ditemui untuk julat tarikh ini.") # PASTIKAN BARIS INI DITUTUP DENGAN ")
+                st.info("Tiada rekod ditemui untuk julat tarikh ini.")
         else:
             st.info("Pangkalan data Google Sheets masih kosong.")
+
+except Exception as e:
+    st.error(f"Ralat sistem: {e}")
