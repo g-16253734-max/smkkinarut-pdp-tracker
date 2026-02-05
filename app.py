@@ -106,7 +106,7 @@ try:
                                         }
                                         st.rerun()
 
-            # BUTANG SIMPAN KE GOOGLE SHEETS
+# BUTANG SIMPAN KE GOOGLE SHEETS
             if st.session_state.rekod_temp:
                 st.divider()
                 df_to_save = pd.DataFrame(list(st.session_state.rekod_temp.values()))
@@ -118,28 +118,37 @@ try:
                         # 1. Ambil data sedia ada
                         existing_data = conn.read()
                         
-                        # 2. Buat DataFrame baru untuk dihantar (buang kolum 'id' sebab kita tak perlu simpan dalam Sheets)
-                        df_to_save_clean = df_to_save.drop(columns=['id'], errors='ignore')
+                        # 2. Sediakan data baru (buang id)
+                        df_to_save_clean = df_to_save.copy()
+                        if 'id' in df_to_save_clean.columns:
+                            df_to_save_clean = df_to_save_clean.drop(columns=['id'])
                         
                         # 3. Gabungkan
                         if existing_data is not None and not existing_data.empty:
-                            # Buang baris kosong & pastikan kolum sama
-                            existing_data = existing_data.dropna(how='all').iloc[:, :6] 
-                            updated_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
+                            # Gabung dan buang baris yang kosong atau rosak
+                            combined_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
+                            # BUANG PENDUA: Jika Nama, Tarikh, Masa, dan Subjek sama, ia dianggap data berulang
+                            updated_data = combined_data.drop_duplicates(
+                                subset=['Tarikh', 'Nama Guru', 'Masa', 'Subjek/Kelas'], 
+                                keep='first'
+                            )
                         else:
                             updated_data = df_to_save_clean
                         
                         # 4. Hantar ke Sheets
                         conn.update(data=updated_data)
                         
-                        # Reset UI
+                        # 5. BERSIHKAN memori & TUNJUK STATUS (Tanpa rerun drastik)
                         st.session_state.rekod_temp = {}
-                        st.success("Rekod berjaya disimpan!")
                         st.balloons()
-                        st.rerun()
+                        st.success("✅ Rekod berjaya ditambah tanpa data bertindih!")
                         
+                        # Guna butang kecil untuk refresh manual atau biarkan user tukar tab
+                        if st.button("Selesai & Segarkan Halaman"):
+                            st.rerun()
+                            
                     except Exception as e:
-                        st.error(f"Gagal: {e}")
+                        st.error(f"Gagal mengemaskini Google Sheets: {e}")
 
 
     with tab_analisis:
@@ -214,6 +223,7 @@ try:
 
 except Exception as e:
     st.error(f"Ralat sistem: {e}")
+
 
 
 
