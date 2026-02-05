@@ -7,7 +7,7 @@ from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import time
 
-# --- KONFIGURASI ---
+# --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="e-PdP Tracker SMK Kinarut", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -18,6 +18,7 @@ if 'rekod_temp' not in st.session_state:
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
+    # Slot Masa (Ikut Jadual Asal)
     PETA_BIASA = {1:("6:40","7:00"), 2:("7:00","7:30"), 3:("7:30","8:00"), 4:("8:00","8:30"), 5:("8:30","9:00"), 6:("9:00","9:30"), 7:("9:30","10:00"), 8:("10:00","10:30"), 9:("10:30","11:00"), 10:("11:00","11:30"), 11:("11:30","12:00"), 12:("12:00","12:30"), 13:("12:30","1:00"), 14:("1:00","1:30"), 15:("1:30","2:00"), 16:("2:00","2:30"), 17:("2:30","3:00")}
     PETA_JUMAAT = {1:("6:40","7:10"), 2:("7:10","7:40"), 3:("7:40","8:10"), 4:("8:10","8:40"), 5:("8:40","9:10"), 6:("9:10","9:40"), 7:("9:40","10:10"), 8:("10:10","10:40"), 9:("10:40","11:10"), 10:("11:10","11:40"), 11:("11:40","12:10"), 12:("12:10","12:40")}
     
@@ -42,13 +43,12 @@ def muat_data_pdf(file_path):
                                 isi_bersih = str(isi_raw).replace("\n", " ").strip()
                                 if len(isi_bersih) > 3 and "REHAT" not in isi_bersih.upper():
                                     
-                                    # LOGIK KIRA MINIT:
-                                    # Jika dalam teks ada range masa (cth: 10:10-11:10), kita kira beza masanya
-                                    minit_pdp = 30 # Default
+                                    # LOGIK KIRA MINIT AUTOMATIK
+                                    minit_pdp = 30 # Default jika tiada masa dikesan
+                                    # Cari pola masa seperti 10:10-11:10 atau 10.10-11.10
                                     times = re.findall(r"(\d{1,2}[:.]\d{2})", isi_bersih)
                                     if len(times) >= 2:
                                         try:
-                                            fmt = '%H:%M' if ':' in times[0] else '%H.%M'
                                             t1 = datetime.strptime(times[0].replace('.', ':'), '%H:%M')
                                             t2 = datetime.strptime(times[1].replace('.', ':'), '%H:%M')
                                             minit_pdp = int((t2 - t1).total_seconds() / 60)
@@ -59,7 +59,7 @@ def muat_data_pdf(file_path):
                                         "id": f"{nama_guru}_{hari}_{i}",
                                         "Guru": nama_guru,
                                         "Hari": hari,
-                                        "Isi": isi_bersih,
+                                        "Subjek_Kelas": isi_bersih,
                                         "Masa": f"{mula}-{tamat}",
                                         "Minit": minit_pdp
                                     })
@@ -76,49 +76,82 @@ with tab1:
     if not df_jadual.empty:
         col1, col2 = st.columns([1, 3])
         with col1:
-            pilihan_guru = st.selectbox("Guru:", sorted(df_jadual['Guru'].unique()))
-            hari_pilihan = st.radio("Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
-            tarikh = st.date_input("Tarikh:", datetime.now())
+            pilihan_guru = st.selectbox("Pilih Guru:", sorted(df_jadual['Guru'].unique()))
+            hari_pilihan = st.radio("Pilih Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
+            tarikh = st.date_input("Tarikh Pantau:", datetime.now())
         
         with col2:
             filtered = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == hari_pilihan)]
-            grid = st.columns(2)
-            for idx, row in enumerate(filtered.itertuples()):
-                with grid[idx % 2]:
-                    if st.button(f"🔴 {row.Masa} | {row.Isi}", key=row.id):
-                        st.session_state.rekod_temp[row.id] = {
-                            "Tarikh": tarikh.strftime("%Y-%m-%d"),
-                            "Nama Guru": row.Guru,
-                            "Subjek/Kelas": row.Isi,
-                            "Minit": row.Minit,
-                            "Masa Rekod": datetime.now().strftime("%H:%M")
-                        }
+            if filtered.empty:
+                st.info("Tiada jadual ditemui.")
+            else:
+                st.subheader(f"Jadual {pilihan_guru}")
+                grid = st.columns(2)
+                for idx, row in enumerate(filtered.itertuples()):
+                    with grid[idx % 2]:
+                        # Menunjukkan info minit pada butang
+                        label = f"{row.Masa} | {row.Subjek_Kelas} ({row.Minit} min)"
+                        is_recorded = row.id in st.session_state.rekod_temp
+                        btn_type = "primary" if is_recorded else "secondary"
+                        
+                        if st.button(label, key=row.id, use_container_width=True, type=btn_type):
+                            if is_recorded:
+                                del st.session_state.rekod_temp[row.id]
+                            else:
+                                st.session_state.rekod_temp[row.id] = {
+                                    "Tarikh": tarikh.strftime("%Y-%m-%d"),
+                                    "Nama Guru": row.Guru,
+                                    "Subjek_Kelas": row.Subjek_Kelas,
+                                    "Minit": row.Minit,
+                                    "Waktu_Rekod": datetime.now().strftime("%H:%M")
+                                }
+                            st.rerun()
         
         if st.session_state.rekod_temp:
-            st.table(pd.DataFrame(list(st.session_state.rekod_temp.values())))
-            if st.button("🚀 SIMPAN KE GOOGLE SHEETS"):
-                existing = conn.read(ttl=0)
-                df_new = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-                updated = pd.concat([existing, df_new], ignore_index=True).drop_duplicates()
-                conn.update(data=updated)
-                st.session_state.rekod_temp = {}
-                st.success("Tersimpan!")
-                time.sleep(1); st.rerun()
+            st.divider()
+            st.write("### Senarai Untuk Dihantar")
+            df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
+            st.table(df_preview)
+            if st.button("🚀 HANTAR KE PANGKALAN DATA", type="primary"):
+                try:
+                    existing = conn.read(ttl=0)
+                    updated = pd.concat([existing, df_preview], ignore_index=True).drop_duplicates()
+                    conn.update(data=updated)
+                    st.session_state.rekod_temp = {}
+                    st.success("Rekod berjaya disimpan!")
+                    time.sleep(1)
+                    st.rerun()
+                except:
+                    # Jika fail kosong, kita buat baru
+                    conn.update(data=df_preview)
+                    st.session_state.rekod_temp = {}
+                    st.success("Pangkalan data baru dicipta!")
+                    time.sleep(1)
+                    st.rerun()
 
 with tab2:
-    st.header("📈 Analisis PdP Terbiar")
-    df_full = conn.read(ttl=0)
-    if df_full is not None and not df_full.empty:
-        # 1. Analisis Jam mengikut Guru
-        st.subheader("Total Jam Terbiar (Guru)")
-        sum_guru = df_full.groupby('Nama Guru')['Minit'].sum() / 60
-        st.bar_chart(sum_guru)
-        
-        # 2. Analisis mengikut Subjek/Kelas
-        st.subheader("Kerap Terbiar mengikut Subjek/Kelas")
-        sum_class = df_full['Subjek/Kelas'].value_counts()
-        st.bar_chart(sum_class)
-        
-        st.dataframe(df_full)
-    else:
-        st.info("Tiada data analisis.")
+    st.header("📈 Analisis Laporan")
+    try:
+        df_full = conn.read(ttl=0)
+        if df_full is not None and not df_full.empty and 'Minit' in df_full.columns:
+            # Pastikan jenis data betul
+            df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("Jam PdP Terbiar (Guru)")
+                sum_guru = df_full.groupby('Nama Guru')['Minit'].sum() / 60
+                st.bar_chart(sum_guru)
+            
+            with c2:
+                st.subheader("Kekerapan mengikut Subjek/Kelas")
+                sum_class = df_full['Subjek_Kelas'].value_counts()
+                st.bar_chart(sum_class)
+            
+            st.divider()
+            st.subheader("Senarai Rekod Penuh")
+            st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
+        else:
+            st.warning("Data masih kosong atau format belum dikemaskini. Sila buat satu rakaman baru di tab Rekod Kehadiran.")
+    except Exception as e:
+        st.info("Sila hantar rekod pertama untuk mengaktifkan paparan analisis.")
