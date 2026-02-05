@@ -4,210 +4,164 @@ import pandas as pd
 import re
 import os
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
+# --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="e-PdP Tracker SMK Kinarut", layout="wide")
 
-# --- 1. MEMORI APLIKASI ---
+# --- 1. SAMBUNGAN GOOGLE SHEETS ---
+# Pastikan URL Sheet diletakkan di bahagian Secrets Streamlit Cloud
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- 2. MEMORI APLIKASI (SESSION STATE) ---
 if 'rekod_temp' not in st.session_state:
-    st.session_state.rekod_temp = {} # Guna dict supaya boleh simpan info tambahan
+    st.session_state.rekod_temp = {}
 
-# Nama fail untuk simpan rekod kekal
-FAIL_REKOD = "Rekod_Ketidakhadiran_Guru.xlsx"
-
+# --- 3. FUNGSI EKSTRAK PDF ---
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
+    # Peta Masa Isnin - Khamis
     PETA_BIASA = {1:("6:40","7:00"), 2:("7:00","7:30"), 3:("7:30","8:00"), 4:("8:00","8:30"), 5:("8:30","9:00"), 6:("9:00","9:30"), 7:("9:30","10:00"), 8:("10:00","10:30"), 9:("10:30","11:00"), 10:("11:00","11:30"), 11:("11:30","12:00"), 12:("12:00","12:30"), 13:("12:30","1:00"), 14:("1:00","1:30"), 15:("1:30","2:00"), 16:("2:00","2:30"), 17:("2:30","3:00")}
+    # Peta Masa Jumaat
     PETA_JUMAAT = {1:("6:40","7:10"), 2:("7:10","7:40"), 3:("7:40","8:10"), 4:("8:10","8:40"), 5:("8:40","9:10"), 6:("9:10","9:40"), 7:("9:40","10:10"), 8:("10:10","10:40"), 9:("10:40","11:10"), 10:("11:10","11:40"), 11:("11:40","12:10"), 12:("12:10","12:40")}
     
-    with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            match_nama = re.search(r"NAMA GURU\s*:\s*(.*)", text)
-            nama_guru = match_nama.group(1).split("GURU KELAS")[0].strip() if match_nama else "Unknown"
-            table = page.extract_table()
-            if not table: continue
-            for row in table:
-                hari = row[0].strip().upper() if row[0] else ""
-                if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
-                    for i in range(1, len(row)):
-                        if row[i] and row[i].strip():
-                            mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
-                            slot_id = f"{nama_guru}_{hari}_{i}"
-                            all_data.append({"id": slot_id, "Guru": nama_guru, "Hari": hari, "Isi": row[i].replace("\n", " "), "Masa": f"{mula}-{tamat}"})
-    return pd.DataFrame(all_data)
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                match_nama = re.search(r"NAMA GURU\s*:\s*(.*)", text)
+                nama_guru = match_nama.group(1).split("GURU KELAS")[0].strip() if match_nama else "Unknown"
+                table = page.extract_table()
+                if not table: continue
+                for row in table:
+                    hari = row[0].strip().upper() if row[0] else ""
+                    if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
+                        for i in range(1, len(row)):
+                            if row[i] and row[i].strip():
+                                mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
+                                slot_id = f"{nama_guru}_{hari}_{i}"
+                                all_data.append({
+                                    "id": slot_id, 
+                                    "Guru": nama_guru, 
+                                    "Hari": hari, 
+                                    "Isi": row[i].replace("\n", " "), 
+                                    "Masa": f"{mula}-{tamat}"
+                                })
+        return pd.DataFrame(all_data)
+    except Exception as e:
+        st.error(f"Gagal membaca PDF: {e}")
+        return pd.DataFrame()
 
-# --- FUNGSI SIMPAN KE EXCEL ---
-from streamlit_gsheets import GSheetsConnection
-
-# --- SAMBUNGAN KE GOOGLE SHEETS ---
-url = "https://docs.google.com/spreadsheets/d/1FejQegOpXyjCgCw3b5Gi-qMV6Xdkoetb6WL6T4zpjcw/edit?gid=0#gid=0"
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-def simpan_ke_google_sheets(data_baru):
-    # Baca data sedia ada dari Google Sheets
-    df_lama = conn.read(spreadsheet=url)
-    
-    # Gabungkan data lama dan baru
-    df_final = pd.concat([df_lama, data_baru], ignore_index=True)
-    
-    # Simpan semula ke Google Sheets
-    conn.update(spreadsheet=url, data=df_final)
-    st.success("✅ Rekod telah dikemaskini di Google Sheets!")
-
-# --- UI ---
+# --- UTAMA ---
 st.title("📊 e-PdP Tracker SMK Kinarut")
 
 try:
-    df = muat_data_pdf("Tracker.pdf")
+    # Memuatkan data dari PDF
+    df_jadual = muat_data_pdf("Guru 26Jan.pdf")
     
-    with st.sidebar:
-        st.header("Konfigurasi")
-        pilihan_guru = st.selectbox("Pilih Nama Guru:", df['Guru'].unique())
-        hari_ini = st.radio("Pilih Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
-        tarikh_pantau = st.date_input("Tarikh Pemantauan:", datetime.now())
+    # --- TAB MENU ---
+    tab_rekod, tab_analisis = st.tabs(["📝 Rekod Kehadiran", "📈 Analisis & Laporan"])
+
+    with tab_rekod:
+        if df_jadual.empty:
+            st.warning("Sila pastikan fail 'Guru 26Jan.pdf' ada dalam folder aplikasi.")
+        else:
+            col_side1, col_side2 = st.columns([1, 3])
+            
+            with col_side1:
+                pilihan_guru = st.selectbox("Pilih Nama Guru:", df_jadual['Guru'].unique())
+                hari_ini = st.radio("Pilih Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
+                tarikh_pantau = st.date_input("Tarikh Pantau:", datetime.now())
+                if st.button("🗑️ Kosongkan Semua Tanda"):
+                    st.session_state.rekod_temp = {}
+                    st.rerun()
+
+            with col_side2:
+                jadual_guru = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == hari_ini)]
+                if jadual_guru.empty:
+                    st.info("Tiada kelas pada hari ini.")
+                else:
+                    st.subheader(f"Jadual {pilihan_guru} ({hari_ini})")
+                    grid = st.columns(3)
+                    for idx, row in enumerate(jadual_guru.itertuples()):
+                        with grid[idx % 3]:
+                            is_selected = row.id in st.session_state.rekod_temp
+                            status_color = "🔴" if is_selected else "🟢"
+                            with st.expander(f"{status_color} {row.Masa}", expanded=True):
+                                st.write(f"**{row.Isi}**")
+                                if is_selected:
+                                    if st.button("Batal", key=row.id):
+                                        del st.session_state.rekod_temp[row.id]
+                                        st.rerun()
+                                else:
+                                    if st.button("Tanda Tidak Hadir", key=row.id):
+                                        st.session_state.rekod_temp[row.id] = {
+                                            "Tarikh": tarikh_pantau.strftime("%Y-%m-%d"),
+                                            "Nama Guru": row.Guru,
+                                            "Hari": row.Hari,
+                                            "Masa": row.Masa,
+                                            "Subjek/Kelas": row.Isi,
+                                            "Masa Rekod": datetime.now().strftime("%H:%M:%S")
+                                        }
+                                        st.rerun()
+
+            # BUTANG SIMPAN KE GOOGLE SHEETS
+            if st.session_state.rekod_temp:
+                st.divider()
+                df_to_save = pd.DataFrame(list(st.session_state.rekod_temp.values()))
+                st.write("### Senarai Untuk Dihantar ke Google Sheets:")
+                st.table(df_to_save)
+                if st.button("🚀 HANTAR LAPORAN SEKARANG"):
+                    existing_data = conn.read()
+                    updated_data = pd.concat([existing_data, df_to_save], ignore_index=True)
+                    conn.update(data=updated_data)
+                    st.session_state.rekod_temp = {}
+                    st.success("Rekod berjaya dihantar!")
+                    st.balloons()
+
+    with tab_analisis:
+        st.header("📈 Analisis Ketidakhadiran Strategik")
+        df_full = conn.read()
         
-        if st.button("🗑️ Kosongkan Tanda"):
-            st.session_state.rekod_temp = {}
-            st.rerun()
+        if not df_full.empty:
+            df_full['Tarikh'] = pd.to_datetime(df_full['Tarikh'])
+            
+            # Filter Julat Tarikh
+            mula_t, tamat_t = st.date_input("Julat Analisis:", [df_full['Tarikh'].min(), df_full['Tarikh'].max()])
+            mask = (df_full['Tarikh'] >= pd.Timestamp(mula_t)) & (df_full['Tarikh'] <= pd.Timestamp(tamat_t))
+            df_filtered = df_full.loc[mask].copy()
 
-    jadual_individu = df[(df['Guru'] == pilihan_guru) & (df['Hari'] == hari_ini)]
-    st.subheader(f"Jadual: {pilihan_guru}")
-
-    if jadual_individu.empty:
-        st.info("Tiada kelas.")
-    else:
-        cols = st.columns(3)
-        for index, row in enumerate(jadual_individu.itertuples()):
-            with cols[index % 3]:
-                is_selected = row.id in st.session_state.rekod_temp
-                box_color = "🔴" if is_selected else "🟢"
+            if not df_filtered.empty:
+                # 1. Analisis Jam Guru
+                st.subheader("📊 Jam PdP Terbiar mengikut Guru")
+                guru_stats = df_filtered['Nama Guru'].value_counts().reset_index()
+                guru_stats.columns = ['Nama Guru', 'Slot']
+                guru_stats['Jam'] = (guru_stats['Slot'] * 30) / 60
+                guru_stats = guru_stats.sort_values('Jam', ascending=False)
+                st.bar_chart(data=guru_stats, x='Nama Guru', y='Jam')
                 
-                with st.expander(f"{box_color} {row.Masa}", expanded=True):
-                    st.write(f"**{row.Isi}**")
-                    if is_selected:
-                        if st.button("Batalkan", key=row.id):
-                            del st.session_state.rekod_temp[row.id]
-                            st.rerun()
-                    else:
-                        if st.button("Tanda Tidak Hadir", key=row.id):
-                            st.session_state.rekod_temp[row.id] = {
-                                "Tarikh": tarikh_pantau.strftime("%d/%m/%Y"),
-                                "Nama Guru": row.Guru,
-                                "Hari": row.Hari,
-                                "Masa": row.Masa,
-                                "Subjek/Kelas": row.Isi,
-                                "Masa Rekod": datetime.now().strftime("%H:%M:%S")
-                            }
-                            st.rerun()
+                # 2. Analisis Impak Kelas & Subjek
+                col_an1, col_an2 = st.columns(2)
+                
+                # Ekstrak Kelas (Contoh: '4A', '5 SN')
+                df_filtered['Kelas_Hanya'] = df_filtered['Subjek/Kelas'].str.extract(r'(\d\s*[A-Z]+)')
+                
+                with col_an1:
+                    st.subheader("🏫 Kelas Paling Terkesan")
+                    kelas_stats = df_filtered.groupby('Kelas_Hanya').size().reset_index(name='Slot')
+                    kelas_stats['Jam'] = (kelas_stats['Slot'] * 30) / 60
+                    st.bar_chart(data=kelas_stats.sort_values('Jam', ascending=False), x='Kelas_Hanya', y='Jam', color="#ff4b4b")
+                
+                with col_an2:
+                    st.subheader("📖 Subjek Paling Terkesan")
+                    # Anggap nama subjek adalah teks sebelum nama kelas
+                    df_filtered['Subjek_Hanya'] = df_filtered['Subjek/Kelas'].apply(lambda x: x.split(re.search(r'(\d)', x).group(0))[0].strip() if re.search(r'(\d)', x) else x)
+                    sub_stats = df_filtered.groupby('Subjek_Hanya').size().reset_index(name='Slot')
+                    sub_stats['Jam'] = (sub_stats['Slot'] * 30) / 60
+                    st.bar_chart(data=sub_stats.sort_values('Jam', ascending=False), x='Subjek_Hanya', y='Jam', color="#0083B8")
 
-    # --- BUTANG HANTAR ---
-    st.divider()
-    if st.session_state.rekod_temp:
-        st.write("### Senarai Bakal Dilaporkan:")
-        df_temp = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-        st.table(df_temp)
-        
-        if st.button("🚀 HANTAR & SIMPAN LAPORAN"):
-            simpan_ke_excel(df_temp)
-            st.session_state.rekod_temp = {} # Kosongkan selepas simpan
-            st.success("Rekod telah disimpan ke dalam fail Excel!")
-            st.balloons()
-            
-    # Papar butang muat turun fail rekod jika wujud
-    if os.path.exists(FAIL_REKOD):
-        with open(FAIL_REKOD, "rb") as f:
-            st.download_button("📥 Muat Turun Fail Rekod (Excel)", f, file_name=FAIL_REKOD)
-
-except Exception as e:
-    st.error(f"Ralat: {e}")
-    
-# --- BAHAGIAN ANALISIS STRATEGIK (MINGGUAN/BULANAN) ---
-st.divider()
-st.header("📈 Analisis Ketidakhadiran Berkala")
-
-if os.path.exists(FAIL_REKOD):
-    df_full = pd.read_excel(FAIL_REKOD)
-    
-    # Tukar kolom Tarikh ke format datetime supaya boleh ditapis
-    df_full['Tarikh_DT'] = pd.to_datetime(df_full['Tarikh'], format='%d/%m/%Y')
-    
-    # 1. Tapis mengikut Julat Tarikh
-    col_tgl1, col_tgl2 = st.columns(2)
-    with col_tgl1:
-        mula = st.date_input("Dari Tarikh:", df_full['Tarikh_DT'].min())
-    with col_tgl2:
-        tamat = st.date_input("Hingga Tarikh:", df_full['Tarikh_DT'].max())
-    
-    mask = (df_full['Tarikh_DT'] >= pd.Timestamp(mula)) & (df_full['Tarikh_DT'] <= pd.Timestamp(tamat))
-    df_filtered = df_full.loc[mask]
-
-    if not df_filtered.empty:
-        # --- PAPARAN TAB ANALISIS ---
-        tab1, tab2, tab3 = st.tabs(["📊 Rumusan Guru", "🏫 Analisis Kelas", "📅 Rekod Penuh"])
-
-        with tab1:
-            st.subheader("Analisis Beban PdP Terbiar mengikut Guru")
-            
-            # 1. Kira jumlah slot
-            analisis_guru = df_filtered['Nama Guru'].value_counts().reset_index()
-            analisis_guru.columns = ['Nama Guru', 'Jumlah Slot']
-            
-            # 2. Tambah kolom Jumlah Minit dan Jumlah Jam
-            # Formula: Slot * 30 minit / 60 minit = Jam
-            analisis_guru['Jumlah Jam'] = (analisis_guru['Jumlah Slot'] * 30) / 60
-            
-            # 3. Papar Graf mengikut Jam
-            st.bar_chart(data=analisis_guru, x='Nama Guru', y='Jumlah Jam')
-            
-            # 4. Papar Jadual dengan info lebih detail
-            st.table(analisis_guru.sort_values(by='Jumlah Jam', ascending=False))
-            
-            st.write(f"💡 *Nota: Pengiraan adalah berdasarkan anggapan 1 slot = 30 minit.*")
-
-        with tab2:
-            st.subheader("🏫 Analisis Impak Strategik (Kelas & Subjek)")
-
-            # Sediakan data: Asingkan Subjek dan Kelas daripada teks "Subjek/Kelas"
-            # Kita guna regex ringkas untuk ambil kod kelas (cth: 4A, 1B)
-            def ekstrak_info(teks):
-                match = re.search(r'(\d[A-Z\s]+)', teks)
-                kelas = match.group(1).strip() if match else "Lain-lain"
-                subjek = teks.split(kelas)[0].strip() if match else teks
-                return pd.Series([subjek, kelas])
-
-            df_filtered[['Subjek_Nama', 'Kelas_Nama']] = df_filtered['Subjek/Kelas'].apply(ekstrak_info)
-
-            # --- BAHAGIAN A: ANALISIS KELAS (GABUNG SEMUA SUBJEK) ---
-            st.markdown("### 1. Kelas Paling Terkesan (Semua Subjek)")
-            analisis_kelas_jam = df_filtered.groupby('Kelas_Nama').size().reset_index(name='Slot')
-            analisis_kelas_jam['Total Jam'] = (analisis_kelas_jam['Slot'] * 30) / 60
-            analisis_kelas_jam = analisis_kelas_jam.sort_values(by='Total Jam', ascending=False)
-
-            st.bar_chart(data=analisis_kelas_jam, x='Kelas_Nama', y='Total Jam')
-            st.dataframe(analisis_kelas_jam[['Kelas_Nama', 'Total Jam']], use_container_width=True, hide_index=True)
-            
-            st.info("💡 *Kelas di atas adalah kelas yang paling banyak kehilangan waktu PdP secara keseluruhan (gabungan semua subjek).*")
-
-            st.divider()
-
-            # --- BAHAGIAN B: ANALISIS SUBJEK (GABUNG SEMUA KELAS) ---
-            st.markdown("### 2. Subjek Paling Terkesan (Semua Kelas)")
-            analisis_subjek_jam = df_filtered.groupby('Subjek_Nama').size().reset_index(name='Slot')
-            analisis_subjek_jam['Total Jam'] = (analisis_subjek_jam['Slot'] * 30) / 60
-            analisis_subjek_jam = analisis_subjek_jam.sort_values(by='Total Jam', ascending=False)
-
-            st.bar_chart(data=analisis_subjek_jam, x='Subjek_Nama', y='Total Jam', color="#ff4b4b")
-            st.dataframe(analisis_subjek_jam[['Subjek_Nama', 'Total Jam']], use_container_width=True, hide_index=True)
-
-            st.warning("⚠️ *Subjek di atas menunjukkan keciciran jam mengajar yang tinggi merentasi seluruh sekolah.*")
-
-        with tab3:
-            st.subheader("Senarai Terperinci")
-            st.dataframe(df_filtered.drop(columns=['Tarikh_DT']), use_container_width=True)
-    else:
-        st.warning("Tiada rekod dijumpai dalam julat tarikh tersebut.")
-else:
-
-    st.info("Sila hantar laporan pertama anda untuk melihat analisis.")
-
+                st.subheader("📋 Senarai Rekod Penuh")
+                st.dataframe(df_filtered.sort_values('Tarikh', ascending=False), use_container_width=True)
+            else:
+                st.info("Tiada rekod ditemui untuk
