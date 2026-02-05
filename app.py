@@ -19,14 +19,20 @@ if 'rekod_temp' not in st.session_state:
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
-    # Peta Masa
+    # Peta Masa (Ikut struktur slot 1-17)
     PETA_BIASA = {1:("6:40","7:00"), 2:("7:00","7:30"), 3:("7:30","8:00"), 4:("8:00","8:30"), 5:("8:30","9:00"), 6:("9:00","9:30"), 7:("9:30","10:00"), 8:("10:00","10:30"), 9:("10:30","11:00"), 10:("11:00","11:30"), 11:("11:30","12:00"), 12:("12:00","12:30"), 13:("12:30","1:00"), 14:("1:00","1:30"), 15:("1:30","2:00"), 16:("2:00","2:30"), 17:("2:30","3:00")}
     PETA_JUMAAT = {1:("6:40","7:10"), 2:("7:10","7:40"), 3:("7:40","8:10"), 4:("8:10","8:40"), 5:("8:40","9:10"), 6:("9:10","9:40"), 7:("9:40","10:10"), 8:("10:10","10:40"), 9:("10:40","11:10"), 10:("11:10","11:40"), 11:("11:40","12:10"), 12:("12:10","12:40")}
     
+    # Check jika fail wujud sebelum buka
+    if not os.path.exists(file_path):
+        return pd.DataFrame()
+
     try:
         with pdfplumber.open(file_path) as pdf:
             for page in pdf.pages:
                 text = page.extract_text()
+                if not text: continue
+                
                 match_nama = re.search(r"NAMA GURU\s*:\s*(.*)", text)
                 nama_guru = match_nama.group(1).split("GURU KELAS")[0].strip() if match_nama else "Unknown"
                 
@@ -34,25 +40,25 @@ def muat_data_pdf(file_path):
                 if not table: continue
                 
                 for row in table:
-                    hari = row[0].strip().upper() if row[0] else ""
+                    # Pastikan row[0] tidak None sebelum strip
+                    hari = str(row[0]).strip().upper() if row[0] else ""
+                    
                     if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
+                        # Salin baris untuk proses merged cells
+                        temp_row = list(row)
                         
-                        # Kita proses baris ini untuk "isi" tempat kosong yang disebabkan merged cells
-                        processed_row = list(row)
-                        for i in range(1, len(processed_row)):
-                            # Jika slot sekarang KOSONG, cuba ambil dari slot SEBELUMNYA
-                            if (processed_row[i] is None or processed_row[i].strip() == ""):
-                                # SYARAT: Jangan tarik jika ini slot REHAT (Contoh: Slot 7)
-                                # Dan jangan tarik jika slot SEBELUMNYA juga kosong
-                                if i != 7 and i > 1:
-                                    isi_sebelum = processed_row[i-1].replace("\n", " ").strip()
-                                    # Kita hanya tarik jika ada isi (bukan kosong)
-                                    if isi_sebelum != "":
-                                        processed_row[i] = isi_sebelum
-
-                        # Selepas baris dibersihkan, baru masukkan dalam data
-                        for i in range(1, len(processed_row)):
-                            isi_final = processed_row[i].replace("\n", " ").strip() if processed_row[i] else ""
+                        for i in range(1, len(temp_row)):
+                            val = temp_row[i]
+                            
+                            # Jika slot KOSONG, cuba tengok slot sebelah kiri
+                            if val is None or str(val).strip() == "":
+                                if i > 1 and i != 7: # i != 7 untuk elak tarik subjek masuk ke waktu REHAT
+                                    val_sebelum = temp_row[i-1]
+                                    if val_sebelum:
+                                        temp_row[i] = val_sebelum
+                            
+                            # Ambil nilai yang sudah diproses
+                            isi_final = str(temp_row[i]).replace("\n", " ").strip() if temp_row[i] else ""
                             
                             if isi_final:
                                 mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
@@ -67,7 +73,8 @@ def muat_data_pdf(file_path):
                                 
         return pd.DataFrame(all_data)
     except Exception as e:
-        st.error(f"Gagal membaca PDF: {e}")
+        # Kita print ralat sebenar di terminal/logs untuk rujukan
+        print(f"Error reading PDF: {e}")
         return pd.DataFrame()
         
 # --- UTAMA ---
@@ -146,6 +153,7 @@ try:
 
 except Exception as e:
     st.error(f"Ralat: {e}")
+
 
 
 
