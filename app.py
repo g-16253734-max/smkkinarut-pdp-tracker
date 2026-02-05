@@ -120,54 +120,72 @@ try:
                     st.success("Rekod berjaya dihantar!")
                     st.balloons()
 
-    with tab_analisis:
+   with tab_analisis:
         st.header("📈 Analisis Ketidakhadiran Strategik")
+        
+        # Ambil data terkini dari Google Sheets
         df_full = conn.read()
         
-        if not df_full.empty:
-            df_full['Tarikh'] = pd.to_datetime(df_full['Tarikh'])
+        if df_full is not None and not df_full.empty:
+            # Pastikan nama kolum dibersihkan (buang ruang kosong jika ada)
+            df_full.columns = df_full.columns.str.strip()
             
-            # Filter Julat Tarikh
-            mula_t, tamat_t = st.date_input("Julat Analisis:", [df_full['Tarikh'].min(), df_full['Tarikh'].max()])
-            mask = (df_full['Tarikh'] >= pd.Timestamp(mula_t)) & (df_full['Tarikh'] <= pd.Timestamp(tamat_t))
-            df_filtered = df_full.loc[mask].copy()
+            # Tukar Tarikh kepada format datetime yang betul
+            df_full['Tarikh'] = pd.to_datetime(df_full['Tarikh'], errors='coerce')
+            
+            # Buang baris yang tarikhnya rosak
+            df_full = df_full.dropna(subset=['Tarikh'])
 
-            if not df_filtered.empty:
-                # 1. Analisis Jam Guru
-                st.subheader("📊 Jam PdP Terbiar mengikut Guru")
-                guru_stats = df_filtered['Nama Guru'].value_counts().reset_index()
-                guru_stats.columns = ['Nama Guru', 'Slot']
-                guru_stats['Jam'] = (guru_stats['Slot'] * 30) / 60
-                guru_stats = guru_stats.sort_values('Jam', ascending=False)
-                st.bar_chart(data=guru_stats, x='Nama Guru', y='Jam')
-                
-                # 2. Analisis Impak Kelas & Subjek
-                col_an1, col_an2 = st.columns(2)
-                
-                # Ekstrak Kelas (Contoh: '4A', '5 SN')
-                df_filtered['Kelas_Hanya'] = df_filtered['Subjek/Kelas'].str.extract(r'(\d\s*[A-Z]+)')
-                
-                with col_an1:
-                    st.subheader("🏫 Kelas Paling Terkesan")
-                    kelas_stats = df_filtered.groupby('Kelas_Hanya').size().reset_index(name='Slot')
-                    kelas_stats['Jam'] = (kelas_stats['Slot'] * 30) / 60
-                    st.bar_chart(data=kelas_stats.sort_values('Jam', ascending=False), x='Kelas_Hanya', y='Jam', color="#ff4b4b")
-                
-                with col_an2:
-                    st.subheader("📖 Subjek Paling Terkesan")
-                    # Anggap nama subjek adalah teks sebelum nama kelas
-                    df_filtered['Subjek_Hanya'] = df_filtered['Subjek/Kelas'].apply(lambda x: x.split(re.search(r'(\d)', x).group(0))[0].strip() if re.search(r'(\d)', x) else x)
-                    sub_stats = df_filtered.groupby('Subjek_Hanya').size().reset_index(name='Slot')
-                    sub_stats['Jam'] = (sub_stats['Slot'] * 30) / 60
-                    st.bar_chart(data=sub_stats.sort_values('Jam', ascending=False), x='Subjek_Hanya', y='Jam', color="#0083B8")
+            # Bahagian Filter Tarikh
+            min_date = df_full['Tarikh'].min().date()
+            max_date = df_full['Tarikh'].max().date()
+            
+            julat = st.date_input("Julat Analisis:", [min_date, max_date])
+            
+            if len(julat) == 2:
+                mula_t, tamat_t = julat
+                mask = (df_full['Tarikh'].dt.date >= mula_t) & (df_full['Tarikh'].dt.date <= tamat_t)
+                df_filtered = df_full.loc[mask].copy()
 
-                st.subheader("📋 Senarai Rekod Penuh")
-                st.dataframe(df_filtered.sort_values('Tarikh', ascending=False), use_container_width=True)
-            else:
-                st.info("Tiada rekod ditemui untuk julat tarikh ini.")
+                if not df_filtered.empty:
+                    # 1. ANALISIS JAM GURU
+                    st.subheader("📊 Jam PdP Terbiar mengikut Guru")
+                    guru_stats = df_filtered['Nama Guru'].value_counts().reset_index()
+                    guru_stats.columns = ['Nama Guru', 'Slot']
+                    guru_stats['Jam'] = (guru_stats['Slot'] * 30) / 60
+                    st.bar_chart(data=guru_stats, x='Nama Guru', y='Jam')
+                    
+                    st.divider()
+
+                    # 2. ANALISIS KELAS & SUBJEK (GABUNGAN)
+                    col_an1, col_an2 = st.columns(2)
+                    
+                    # Logik Ekstrak Kelas (Ambil nombor dan huruf, cth: 4A, 5 SN)
+                    # Kita guna str.extract untuk cari corak kelas
+                    df_filtered['Kelas_Hanya'] = df_filtered['Subjek/Kelas'].str.extract(r'(\d\s*[A-Z]+)')
+                    df_filtered['Kelas_Hanya'] = df_filtered['Kelas_Hanya'].fillna("Lain-lain")
+                    
+                    with col_an1:
+                        st.subheader("🏫 Kelas Paling Terkesan")
+                        kelas_stats = df_filtered.groupby('Kelas_Hanya').size().reset_index(name='Slot')
+                        kelas_stats['Jam'] = (kelas_stats['Slot'] * 30) / 60
+                        st.bar_chart(data=kelas_stats.sort_values('Jam', ascending=False), x='Kelas_Hanya', y='Jam', color="#ff4b4b")
+                    
+                    with col_an2:
+                        st.subheader("📖 Subjek Paling Terkesan")
+                        # Ambil teks sebelum nombor pertama sebagai Subjek
+                        df_filtered['Subjek_Hanya'] = df_filtered['Subjek/Kelas'].str.split(r'\d').str[0].str.strip()
+                        sub_stats = df_filtered.groupby('Subjek_Hanya').size().reset_index(name='Slot')
+                        sub_stats['Jam'] = (sub_stats['Slot'] * 30) / 60
+                        st.bar_chart(data=sub_stats.sort_values('Jam', ascending=False), x='Subjek_Hanya', y='Jam', color="#0083B8")
+
+                    st.divider()
+                    st.subheader("📋 Senarai Rekod Terperinci")
+                    # Tunjukkan tarikh dalam format yang mudah dibaca
+                    df_display = df_filtered.copy()
+                    df_display['Tarikh'] = df_display['Tarikh'].dt.strftime('%d/%m/%Y')
+                    st.dataframe(df_display.sort_values('Tarikh', ascending=False), use_container_width=True)
+                else:
+                    st.warning("Tiada rekod ditemui untuk julat tarikh tersebut.")
         else:
-            st.info("Pangkalan data Google Sheets masih kosong.")
-
-except Exception as e:
-    st.error(f"Ralat sistem: {e}")
-
+            st.info("Pangkalan data Google Sheets masih kosong. Sila hantar laporan di tab 'Rekod Kehadiran' terlebih dahulu.")
