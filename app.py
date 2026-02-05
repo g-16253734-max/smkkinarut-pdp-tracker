@@ -106,7 +106,7 @@ try:
                                         }
                                         st.rerun()
 
-# BUTANG SIMPAN KE GOOGLE SHEETS
+# --- BAHAGIAN SIMPAN (VERSI FIX OVERWRITE & CACHE) ---
             if st.session_state.rekod_temp:
                 st.divider()
                 df_to_save = pd.DataFrame(list(st.session_state.rekod_temp.values()))
@@ -115,43 +115,44 @@ try:
                 
                 if st.button("🚀 HANTAR LAPORAN SEKARANG"):
                     try:
-                        # 1. Ambil data sedia ada
-                        existing_data = conn.read()
+                        # 1. PAKSA Streamlit baca data paling baru (clear cache)
+                        # Kita guna ttl=0 supaya dia tak ambil data lama dari memori
+                        existing_data = conn.read(ttl=0)
                         
                         # 2. Sediakan data baru
                         df_to_save_clean = df_to_save.copy()
                         if 'id' in df_to_save_clean.columns:
                             df_to_save_clean = df_to_save_clean.drop(columns=['id'])
                         
-                        # 3. Logik Gabung yang lebih bersih
+                        # 3. Gabungkan data
                         if existing_data is not None and not existing_data.empty:
-                            # BUANG baris yang benar-benar kosong dari Google Sheets (jika ada)
+                            # Buang baris kosong yang "halimunan"
                             existing_data = existing_data.dropna(how='all')
-                            
-                            # Gabungkan
-                            combined_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
-                            
-                            # Buang pendua (redundant)
-                            updated_data = combined_data.drop_duplicates(
+                            # Cantumkan
+                            updated_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
+                            # Buang duplicate jika tertekan 2 kali
+                            updated_data = updated_data.drop_duplicates(
                                 subset=['Tarikh', 'Nama Guru', 'Masa', 'Subjek/Kelas'], 
                                 keep='first'
                             )
                         else:
                             updated_data = df_to_save_clean
-                        
-                        # 4. Hantar ke Sheets
+
+                        # 4. SIMPAN SEMUA
                         conn.update(data=updated_data)
                         
-                        # 5. Reset & Tunjuk Belon
+                        # 5. BERSIHKAN SESSION STATE
                         st.session_state.rekod_temp = {}
-                        st.balloons()
-                        st.success("✅ Rekod berjaya dikemaskini!")
                         
-                        # Rerun selepas 2 saat supaya user sempat nampak mesej
+                        # 6. TUNJUK KEJAYAAN
+                        st.balloons()
+                        st.success("✅ Rekod berjaya disimpan ke Google Sheets!")
+                        
+                        # Tunggu sekejap dan paksa refresh apps
                         import time
                         time.sleep(2)
                         st.rerun()
-                            
+                        
                     except Exception as e:
                         st.error(f"Gagal mengemaskini Google Sheets: {e}")
 
@@ -227,6 +228,7 @@ try:
 
 except Exception as e:
     st.error(f"Ralat sistem: {e}")
+
 
 
 
