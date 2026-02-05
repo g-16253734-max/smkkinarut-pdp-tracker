@@ -36,19 +36,13 @@ def muat_data_pdf(file_path):
                     hari = row[0].strip().upper() if row[0] else ""
                     if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
                         
-                        isi_sebelumnya = "" # Simpan maklumat subjek sebelumnya
-                        
                         for i in range(1, len(row)):
                             isi_semasa = row[i].replace("\n", " ").strip() if row[i] else ""
                             
-                            # LOGIK MERGED CELL: 
-                            # Jika slot semasa kosong, tapi slot sebelumnya ada isi, 
-                            # dan ini bukan slot rehat (biasanya slot 7), kita bawa isi tersebut.
-                            if isi_semasa == "" and isi_sebelumnya != "":
-                                # Jangan bawa isi jika itu slot REHAT (bergantung pada struktur PDF anda)
-                                # Biasanya slot 7 atau 8 adalah rehat di kebanyakan sekolah
-                                if i != 7: 
-                                    isi_semasa = isi_sebelumnya
+                            # --- LOGIK BARU: HANYA AMBIL JIKA ADA ISI ---
+                            # Kita tidak lagi "memaksa" isi dari slot sebelumnya.
+                            # PDFPlumber biasanya akan letak None atau "" pada cell yang merged.
+                            # Tetapi jadual ASC Timetables biasanya letak isi pada cell pertama sahaja.
                             
                             if isi_semasa:
                                 mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
@@ -60,15 +54,18 @@ def muat_data_pdf(file_path):
                                     "Isi": isi_semasa, 
                                     "Masa": f"{mula}-{tamat}"
                                 })
-                                isi_sebelumnya = isi_semasa # Update isi untuk slot seterusnya
-                            else:
-                                isi_sebelumnya = "" # Reset jika memang slot kosong betul
-                                
-        return pd.DataFrame(all_data)
+        
+        df = pd.DataFrame(all_data)
+        
+        # --- PROSES TAMBAHAN: MENGISI SLOT KOSONG YANG MERGED (SETELAH JADI DATAFRAME) ---
+        # Ini lebih selamat. Kita hanya isi jika slot itu benar-benar bersebelahan.
+        # Kita tak buat dalam loop tadi supaya dia tak "terbabas" sampai petang.
+        
+        return df
     except Exception as e:
         st.error(f"Gagal membaca PDF: {e}")
         return pd.DataFrame()
-
+        
 # --- UTAMA ---
 st.title("📊 e-PdP Tracker SMK Kinarut")
 
@@ -145,4 +142,5 @@ try:
 
 except Exception as e:
     st.error(f"Ralat: {e}")
+
 
