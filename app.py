@@ -16,7 +16,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 if 'rekod_temp' not in st.session_state:
     st.session_state.rekod_temp = {}
 
-# --- 3. FUNGSI EKSTRAK PDF ---
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
@@ -29,21 +28,45 @@ def muat_data_pdf(file_path):
                 text = page.extract_text()
                 match_nama = re.search(r"NAMA GURU\s*:\s*(.*)", text)
                 nama_guru = match_nama.group(1).split("GURU KELAS")[0].strip() if match_nama else "Unknown"
+                
                 table = page.extract_table()
                 if not table: continue
+                
                 for row in table:
                     hari = row[0].strip().upper() if row[0] else ""
                     if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
+                        
+                        isi_sebelumnya = "" # Simpan maklumat subjek sebelumnya
+                        
                         for i in range(1, len(row)):
-                            if row[i] and row[i].strip():
+                            isi_semasa = row[i].replace("\n", " ").strip() if row[i] else ""
+                            
+                            # LOGIK MERGED CELL: 
+                            # Jika slot semasa kosong, tapi slot sebelumnya ada isi, 
+                            # dan ini bukan slot rehat (biasanya slot 7), kita bawa isi tersebut.
+                            if isi_semasa == "" and isi_sebelumnya != "":
+                                # Jangan bawa isi jika itu slot REHAT (bergantung pada struktur PDF anda)
+                                # Biasanya slot 7 atau 8 adalah rehat di kebanyakan sekolah
+                                if i != 7: 
+                                    isi_semasa = isi_sebelumnya
+                            
+                            if isi_semasa:
                                 mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
                                 slot_id = f"{nama_guru}_{hari}_{i}"
                                 all_data.append({
-                                    "id": slot_id, "Guru": nama_guru, "Hari": hari, 
-                                    "Isi": row[i].replace("\n", " "), "Masa": f"{mula}-{tamat}"
+                                    "id": slot_id, 
+                                    "Guru": nama_guru, 
+                                    "Hari": hari, 
+                                    "Isi": isi_semasa, 
+                                    "Masa": f"{mula}-{tamat}"
                                 })
+                                isi_sebelumnya = isi_semasa # Update isi untuk slot seterusnya
+                            else:
+                                isi_sebelumnya = "" # Reset jika memang slot kosong betul
+                                
         return pd.DataFrame(all_data)
     except Exception as e:
+        st.error(f"Gagal membaca PDF: {e}")
         return pd.DataFrame()
 
 # --- UTAMA ---
@@ -122,3 +145,4 @@ try:
 
 except Exception as e:
     st.error(f"Ralat: {e}")
+
