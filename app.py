@@ -45,16 +45,15 @@ def muat_data_pdf(file_path):
                     hari = str(row[0]).strip().upper() if row[0] else ""
                     if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
                         
-                        # LOGIK TERBARU: Kita HANYA ambil kotak yang betul-betul ada tulisan.
-                        # Tiada lagi fungsi tarik data dari kotak sebelah.
+                        # HANYA ambil kotak yang benar-benar ada tulisan (No Auto-Fill)
                         for i in range(1, len(row)):
                             isi_raw = row[i]
                             
                             if isi_raw and str(isi_raw).strip() != "":
                                 isi_bersih = str(isi_raw).replace("\n", " ").strip()
                                 
-                                # Abaikan teks yang terlalu pendek (seperti "-" atau "None")
-                                if len(isi_bersih) > 2 and isi_bersih.lower() != "none":
+                                # Abaikan teks yang terlalu pendek atau rehat
+                                if len(isi_bersih) > 2 and "REHAT" not in isi_bersih.upper():
                                     mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
                                     slot_id = f"{nama_guru}_{hari}_{i}"
                                     
