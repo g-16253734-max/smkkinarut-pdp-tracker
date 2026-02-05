@@ -2,18 +2,17 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
-import os
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
+import time
 
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="e-PdP Tracker SMK Kinarut", layout="wide")
 
 # --- 1. SAMBUNGAN GOOGLE SHEETS ---
-# Pastikan URL Sheet diletakkan di bahagian Secrets Streamlit Cloud
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 2. MEMORI APLIKASI (SESSION STATE) ---
+# --- 2. MEMORI APLIKASI ---
 if 'rekod_temp' not in st.session_state:
     st.session_state.rekod_temp = {}
 
@@ -21,9 +20,7 @@ if 'rekod_temp' not in st.session_state:
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
-    # Peta Masa Isnin - Khamis
     PETA_BIASA = {1:("6:40","7:00"), 2:("7:00","7:30"), 3:("7:30","8:00"), 4:("8:00","8:30"), 5:("8:30","9:00"), 6:("9:00","9:30"), 7:("9:30","10:00"), 8:("10:00","10:30"), 9:("10:30","11:00"), 10:("11:00","11:30"), 11:("11:30","12:00"), 12:("12:00","12:30"), 13:("12:30","1:00"), 14:("1:00","1:30"), 15:("1:30","2:00"), 16:("2:00","2:30"), 17:("2:30","3:00")}
-    # Peta Masa Jumaat
     PETA_JUMAAT = {1:("6:40","7:10"), 2:("7:10","7:40"), 3:("7:40","8:10"), 4:("8:10","8:40"), 5:("8:40","9:10"), 6:("9:10","9:40"), 7:("9:40","10:10"), 8:("10:10","10:40"), 9:("10:40","11:10"), 10:("11:10","11:40"), 11:("11:40","12:10"), 12:("12:10","12:40")}
     
     try:
@@ -42,196 +39,86 @@ def muat_data_pdf(file_path):
                                 mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
                                 slot_id = f"{nama_guru}_{hari}_{i}"
                                 all_data.append({
-                                    "id": slot_id, 
-                                    "Guru": nama_guru, 
-                                    "Hari": hari, 
-                                    "Isi": row[i].replace("\n", " "), 
-                                    "Masa": f"{mula}-{tamat}"
+                                    "id": slot_id, "Guru": nama_guru, "Hari": hari, 
+                                    "Isi": row[i].replace("\n", " "), "Masa": f"{mula}-{tamat}"
                                 })
         return pd.DataFrame(all_data)
     except Exception as e:
-        st.error(f"Gagal membaca PDF: {e}")
         return pd.DataFrame()
 
 # --- UTAMA ---
 st.title("📊 e-PdP Tracker SMK Kinarut")
 
 try:
-    # Memuatkan data dari PDF
     df_jadual = muat_data_pdf("Tracker.pdf")
-    
-    # --- TAB MENU ---
     tab_rekod, tab_analisis = st.tabs(["📝 Rekod Kehadiran", "📈 Analisis & Laporan"])
 
     with tab_rekod:
         if df_jadual.empty:
-            st.warning("Sila pastikan fail 'Tracker.pdf' ada dalam folder aplikasi.")
+            st.error("Fail 'Tracker.pdf' tidak ditemui atau kosong.")
         else:
             col_side1, col_side2 = st.columns([1, 3])
-            
             with col_side1:
-                pilihan_guru = st.selectbox("Pilih Nama Guru:", df_jadual['Guru'].unique())
-                hari_ini = st.radio("Pilih Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
-                tarikh_pantau = st.date_input("Tarikh Pantau:", datetime.now())
-                if st.button("🗑️ Kosongkan Semua Tanda"):
+                pilihan_guru = st.selectbox("Pilih Guru:", df_jadual['Guru'].unique())
+                pilihan_hari = st.radio("Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
+                tarikh_p = st.date_input("Tarikh Pantau:", datetime.now())
+                if st.button("🗑️ Kosongkan"):
                     st.session_state.rekod_temp = {}
                     st.rerun()
 
             with col_side2:
-                jadual_guru = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == hari_ini)]
-                if jadual_guru.empty:
-                    st.info("Tiada kelas pada hari ini.")
+                jadual = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == pilihan_hari)]
+                if jadual.empty:
+                    st.info("Tiada kelas.")
                 else:
-                    st.subheader(f"Jadual {pilihan_guru} ({hari_ini})")
                     grid = st.columns(3)
-                    for idx, row in enumerate(jadual_guru.itertuples()):
+                    for idx, row in enumerate(jadual.itertuples()):
                         with grid[idx % 3]:
-                            is_selected = row.id in st.session_state.rekod_temp
-                            status_color = "🔴" if is_selected else "🟢"
-                            with st.expander(f"{status_color} {row.Masa}", expanded=True):
-                                st.write(f"**{row.Isi}**")
-                                if is_selected:
-                                    if st.button("Batal", key=row.id):
-                                        del st.session_state.rekod_temp[row.id]
-                                        st.rerun()
+                            is_sel = row.id in st.session_state.rekod_temp
+                            if st.button(f"{'🔴' if is_sel else '🟢'} {row.Masa}\n{row.Isi}", key=row.id):
+                                if is_sel: del st.session_state.rekod_temp[row.id]
                                 else:
-                                    if st.button("Tanda Tidak Hadir", key=row.id):
-                                        st.session_state.rekod_temp[row.id] = {
-                                            "Tarikh": tarikh_pantau.strftime("%Y-%m-%d"),
-                                            "Nama Guru": row.Guru,
-                                            "Hari": row.Hari,
-                                            "Masa": row.Masa,
-                                            "Subjek/Kelas": row.Isi,
-                                            "Masa Rekod": datetime.now().strftime("%H:%M:%S")
-                                        }
-                                        st.rerun()
+                                    st.session_state.rekod_temp[row.id] = {
+                                        "Tarikh": tarikh_p.strftime("%Y-%m-%d"),
+                                        "Nama Guru": row.Guru, "Hari": row.Hari,
+                                        "Masa": row.Masa, "Subjek/Kelas": row.Isi,
+                                        "Masa Rekod": datetime.now().strftime("%H:%M:%S")
+                                    }
+                                st.rerun()
 
-# --- BAHAGIAN SIMPAN (VERSI FIX OVERWRITE & CACHE) ---
             if st.session_state.rekod_temp:
                 st.divider()
-                df_to_save = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-                st.write("### Senarai Untuk Dihantar:")
-                st.table(df_to_save)
-                
-                if st.button("🚀 HANTAR LAPORAN SEKARANG"):
-                    try:
-                        # 1. PAKSA Streamlit baca data paling baru (clear cache)
-                        # Kita guna ttl=0 supaya dia tak ambil data lama dari memori
-                        existing_data = conn.read(ttl=0)
-                        
-                        # 2. Sediakan data baru
-                        df_to_save_clean = df_to_save.copy()
-                        if 'id' in df_to_save_clean.columns:
-                            df_to_save_clean = df_to_save_clean.drop(columns=['id'])
-                        
-                        # 3. Gabungkan data
-                        if existing_data is not None and not existing_data.empty:
-                            # Buang baris kosong yang "halimunan"
-                            existing_data = existing_data.dropna(how='all')
-                            # Cantumkan
-                            updated_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
-                            # Buang duplicate jika tertekan 2 kali
-                            updated_data = updated_data.drop_duplicates(
-                                subset=['Tarikh', 'Nama Guru', 'Masa', 'Subjek/Kelas'], 
-                                keep='first'
-                            )
-                        else:
-                            updated_data = df_to_save_clean
-
-                        # 4. SIMPAN SEMUA
-                        conn.update(data=updated_data)
-                        
-                        # 5. BERSIHKAN SESSION STATE
-                        st.session_state.rekod_temp = {}
-                        
-                        # 6. TUNJUK KEJAYAAN
-                        st.balloons()
-                        st.success("✅ Rekod berjaya disimpan ke Google Sheets!")
-                        
-                        # Tunggu sekejap dan paksa refresh apps
-                        import time
-                        time.sleep(2)
-                        st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"Gagal mengemaskini Google Sheets: {e}")
+                df_send = pd.DataFrame(list(st.session_state.rekod_temp.values()))
+                st.table(df_send)
+                if st.button("🚀 HANTAR SEKARANG"):
+                    # AMBIL DATA LAMA (ttl=0 penting!)
+                    old_data = conn.read(ttl=0)
+                    new_data = pd.concat([old_data, df_send], ignore_index=True).dropna(how='all')
+                    conn.update(data=new_data)
+                    st.session_state.rekod_temp = {}
+                    st.success("Berjaya disimpan!")
+                    st.balloons()
+                    time.sleep(1)
+                    st.rerun()
 
     with tab_analisis:
-        st.header("📈 Analisis Ketidakhadiran Strategik")
-        
-        # Ambil data terkini dari Google Sheets
-        df_full = conn.read()
-        
+        df_full = conn.read(ttl=0)
         if df_full is not None and not df_full.empty:
-            # Pastikan nama kolum dibersihkan (buang ruang kosong jika ada)
             df_full.columns = df_full.columns.str.strip()
-            
-            # Tukar Tarikh kepada format datetime yang betul
             df_full['Tarikh'] = pd.to_datetime(df_full['Tarikh'], errors='coerce')
-            
-            # Buang baris yang tarikhnya rosak
             df_full = df_full.dropna(subset=['Tarikh'])
-
-            # Bahagian Filter Tarikh
-            min_date = df_full['Tarikh'].min().date()
-            max_date = df_full['Tarikh'].max().date()
             
-            julat = st.date_input("Julat Analisis:", [min_date, max_date])
+            # Analisis Ringkas
+            st.subheader("📊 Statistik Jam PdP Terbiar")
+            guru_stats = df_full['Nama Guru'].value_counts().reset_index()
+            guru_stats.columns = ['Nama Guru', 'Slot']
+            guru_stats['Jam'] = (guru_stats['Slot'] * 30) / 60
+            st.bar_chart(data=guru_stats, x='Nama Guru', y='Jam')
             
-            if len(julat) == 2:
-                mula_t, tamat_t = julat
-                mask = (df_full['Tarikh'].dt.date >= mula_t) & (df_full['Tarikh'].dt.date <= tamat_t)
-                df_filtered = df_full.loc[mask].copy()
-
-                if not df_filtered.empty:
-                    # 1. ANALISIS JAM GURU
-                    st.subheader("📊 Jam PdP Terbiar mengikut Guru")
-                    guru_stats = df_filtered['Nama Guru'].value_counts().reset_index()
-                    guru_stats.columns = ['Nama Guru', 'Slot']
-                    guru_stats['Jam'] = (guru_stats['Slot'] * 30) / 60
-                    st.bar_chart(data=guru_stats, x='Nama Guru', y='Jam')
-                    
-                    st.divider()
-
-                    # 2. ANALISIS KELAS & SUBJEK (GABUNGAN)
-                    col_an1, col_an2 = st.columns(2)
-                    
-                    # Logik Ekstrak Kelas (Ambil nombor dan huruf, cth: 4A, 5 SN)
-                    # Kita guna str.extract untuk cari corak kelas
-                    df_filtered['Kelas_Hanya'] = df_filtered['Subjek/Kelas'].str.extract(r'(\d\s*[A-Z]+)')
-                    df_filtered['Kelas_Hanya'] = df_filtered['Kelas_Hanya'].fillna("Lain-lain")
-                    
-                    with col_an1:
-                        st.subheader("🏫 Kelas Paling Terkesan")
-                        kelas_stats = df_filtered.groupby('Kelas_Hanya').size().reset_index(name='Slot')
-                        kelas_stats['Jam'] = (kelas_stats['Slot'] * 30) / 60
-                        st.bar_chart(data=kelas_stats.sort_values('Jam', ascending=False), x='Kelas_Hanya', y='Jam', color="#ff4b4b")
-                    
-                    with col_an2:
-                        st.subheader("📖 Subjek Paling Terkesan")
-                        # Ambil teks sebelum nombor pertama sebagai Subjek
-                        df_filtered['Subjek_Hanya'] = df_filtered['Subjek/Kelas'].str.split(r'\d').str[0].str.strip()
-                        sub_stats = df_filtered.groupby('Subjek_Hanya').size().reset_index(name='Slot')
-                        sub_stats['Jam'] = (sub_stats['Slot'] * 30) / 60
-                        st.bar_chart(data=sub_stats.sort_values('Jam', ascending=False), x='Subjek_Hanya', y='Jam', color="#0083B8")
-
-                    st.divider()
-                    st.subheader("📋 Senarai Rekod Terperinci")
-                    # Tunjukkan tarikh dalam format yang mudah dibaca
-                    df_display = df_filtered.copy()
-                    df_display['Tarikh'] = df_display['Tarikh'].dt.strftime('%d/%m/%Y')
-                    st.dataframe(df_display.sort_values('Tarikh', ascending=False), use_container_width=True)
-                else:
-                    st.warning("Tiada rekod ditemui untuk julat tarikh tersebut.")
+            st.subheader("📋 Rekod Penuh")
+            st.dataframe(df_full.sort_values('Tarikh', ascending=False))
         else:
-            st.info("Pangkalan data Google Sheets masih kosong. Sila hantar laporan di tab 'Rekod Kehadiran' terlebih dahulu.")
+            st.info("Tiada data dalam Google Sheets.")
 
 except Exception as e:
-    st.error(f"Ralat sistem: {e}")
-
-
-
-
-
-
-
+    st.error(f"Ralat: {e}")
