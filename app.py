@@ -118,16 +118,20 @@ try:
                         # 1. Ambil data sedia ada
                         existing_data = conn.read()
                         
-                        # 2. Sediakan data baru (buang id)
+                        # 2. Sediakan data baru
                         df_to_save_clean = df_to_save.copy()
                         if 'id' in df_to_save_clean.columns:
                             df_to_save_clean = df_to_save_clean.drop(columns=['id'])
                         
-                        # 3. Gabungkan
+                        # 3. Logik Gabung yang lebih bersih
                         if existing_data is not None and not existing_data.empty:
-                            # Gabung dan buang baris yang kosong atau rosak
+                            # BUANG baris yang benar-benar kosong dari Google Sheets (jika ada)
+                            existing_data = existing_data.dropna(how='all')
+                            
+                            # Gabungkan
                             combined_data = pd.concat([existing_data, df_to_save_clean], ignore_index=True)
-                            # BUANG PENDUA: Jika Nama, Tarikh, Masa, dan Subjek sama, ia dianggap data berulang
+                            
+                            # Buang pendua (redundant)
                             updated_data = combined_data.drop_duplicates(
                                 subset=['Tarikh', 'Nama Guru', 'Masa', 'Subjek/Kelas'], 
                                 keep='first'
@@ -138,18 +142,18 @@ try:
                         # 4. Hantar ke Sheets
                         conn.update(data=updated_data)
                         
-                        # 5. BERSIHKAN memori & TUNJUK STATUS (Tanpa rerun drastik)
+                        # 5. Reset & Tunjuk Belon
                         st.session_state.rekod_temp = {}
                         st.balloons()
-                        st.success("✅ Rekod berjaya ditambah tanpa data bertindih!")
+                        st.success("✅ Rekod berjaya dikemaskini!")
                         
-                        # Guna butang kecil untuk refresh manual atau biarkan user tukar tab
-                        if st.button("Selesai & Segarkan Halaman"):
-                            st.rerun()
+                        # Rerun selepas 2 saat supaya user sempat nampak mesej
+                        import time
+                        time.sleep(2)
+                        st.rerun()
                             
                     except Exception as e:
                         st.error(f"Gagal mengemaskini Google Sheets: {e}")
-
 
     with tab_analisis:
         st.header("📈 Analisis Ketidakhadiran Strategik")
@@ -223,6 +227,7 @@ try:
 
 except Exception as e:
     st.error(f"Ralat sistem: {e}")
+
 
 
 
