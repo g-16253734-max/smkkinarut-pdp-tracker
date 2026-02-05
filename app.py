@@ -190,3 +190,5 @@ try:
         else:
             st.info("Pangkalan data Google Sheets masih kosong. Sila hantar laporan di tab 'Rekod Kehadiran' terlebih dahulu.")
 
+except Exception as e:
+    st.error(f"Ralat sistem: {e}")
