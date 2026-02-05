@@ -164,5 +164,6 @@ try:
                 st.subheader("📋 Senarai Rekod Penuh")
                 st.dataframe(df_filtered.sort_values('Tarikh', ascending=False), use_container_width=True)
             else:
-                st.info("Tiada rekod ditemui untuk
-
+               st.info("Tiada rekod ditemui untuk julat tarikh ini.") # PASTIKAN BARIS INI DITUTUP DENGAN ")
+        else:
+            st.info("Pangkalan data Google Sheets masih kosong.")
