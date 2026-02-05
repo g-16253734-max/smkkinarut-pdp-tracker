@@ -86,26 +86,31 @@ with tab1:
                 st.info("Tiada jadual ditemui.")
             else:
                 st.subheader(f"Jadual {pilihan_guru}")
-                grid = st.columns(2)
+                # Kita gunakan susunan grid yang lebih fleksibel
                 for idx, row in enumerate(filtered.itertuples()):
-                    with grid[idx % 2]:
-                        # Menunjukkan info minit pada butang
-                        label = f"{row.Masa} | {row.Subjek_Kelas} ({row.Minit} min)"
-                        is_recorded = row.id in st.session_state.rekod_temp
-                        btn_type = "primary" if is_recorded else "secondary"
-                        
-                        if st.button(label, key=row.id, use_container_width=True, type=btn_type):
-                            if is_recorded:
-                                del st.session_state.rekod_temp[row.id]
-                            else:
-                                st.session_state.rekod_temp[row.id] = {
-                                    "Tarikh": tarikh.strftime("%Y-%m-%d"),
-                                    "Nama Guru": row.Guru,
-                                    "Subjek_Kelas": row.Subjek_Kelas,
-                                    "Minit": row.Minit,
-                                    "Waktu_Rekod": datetime.now().strftime("%H:%M")
-                                }
-                            st.rerun()
+                    is_recorded = row.id in st.session_state.rekod_temp
+                    
+                    # Logik Warna dan Teks Butang
+                    if is_recorded:
+                        btn_label = f"🔴 BATAL: {row.Masa} | {row.Subjek_Kelas}"
+                        btn_type = "primary" # Warna Merah/Terang
+                    else:
+                        btn_label = f"🟢 {row.Masa} | {row.Subjek_Kelas} ({row.Minit} min) - Tanda Tidak Hadir"
+                        btn_type = "secondary" # Warna Asal
+                    
+                    # Papar butang
+                    if st.button(btn_label, key=row.id, use_container_width=True, type=btn_type):
+                        if is_recorded:
+                            del st.session_state.rekod_temp[row.id]
+                        else:
+                            st.session_state.rekod_temp[row.id] = {
+                                "Tarikh": tarikh.strftime("%Y-%m-%d"),
+                                "Nama Guru": row.Guru,
+                                "Subjek_Kelas": row.Subjek_Kelas,
+                                "Minit": row.Minit,
+                                "Waktu_Rekod": datetime.now().strftime("%H:%M")
+                            }
+                        st.rerun()
         
         if st.session_state.rekod_temp:
             st.divider()
@@ -155,3 +160,4 @@ with tab2:
             st.warning("Data masih kosong atau format belum dikemaskini. Sila buat satu rakaman baru di tab Rekod Kehadiran.")
     except Exception as e:
         st.info("Sila hantar rekod pertama untuk mengaktifkan paparan analisis.")
+
