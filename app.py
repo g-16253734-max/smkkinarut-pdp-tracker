@@ -120,7 +120,7 @@ try:
                     st.success("Rekod berjaya dihantar!")
                     st.balloons()
 
-   with tab_analisis:
+    with tab_analisis:
         st.header("📈 Analisis Ketidakhadiran Strategik")
         
         # Ambil data terkini dari Google Sheets
@@ -189,3 +189,4 @@ try:
                     st.warning("Tiada rekod ditemui untuk julat tarikh tersebut.")
         else:
             st.info("Pangkalan data Google Sheets masih kosong. Sila hantar laporan di tab 'Rekod Kehadiran' terlebih dahulu.")
+
