@@ -2,7 +2,7 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import re
-import os
+import os # Membaiki ralat 'os' is not defined
 from datetime import datetime
 from streamlit_gsheets import GSheetsConnection
 import time
@@ -21,9 +21,9 @@ if 'rekod_temp' not in st.session_state:
 @st.cache_data
 def muat_data_pdf(file_path):
     all_data = []
-    # Peta Masa Isnin - Khamis
+    # Peta Masa Isnin - Khamis (Slot 1 - 17)
     PETA_BIASA = {1:("6:40","7:00"), 2:("7:00","7:30"), 3:("7:30","8:00"), 4:("8:00","8:30"), 5:("8:30","9:00"), 6:("9:00","9:30"), 7:("9:30","10:00"), 8:("10:00","10:30"), 9:("10:30","11:00"), 10:("11:00","11:30"), 11:("11:30","12:00"), 12:("12:00","12:30"), 13:("12:30","1:00"), 14:("1:00","1:30"), 15:("1:30","2:00"), 16:("2:00","2:30"), 17:("2:30","3:00")}
-    # Peta Masa Jumaat
+    # Peta Masa Jumaat (Slot 1 - 12)
     PETA_JUMAAT = {1:("6:40","7:10"), 2:("7:10","7:40"), 3:("7:40","8:10"), 4:("8:10","8:40"), 5:("8:40","9:10"), 6:("9:10","9:40"), 7:("9:40","10:10"), 8:("10:10","10:40"), 9:("10:40","11:10"), 10:("11:10","11:40"), 11:("11:40","12:10"), 12:("12:10","12:40")}
     
     if not os.path.exists(file_path):
@@ -35,6 +35,7 @@ def muat_data_pdf(file_path):
                 text = page.extract_text()
                 if not text: continue
                 
+                # Ekstrak Nama Guru
                 match_nama = re.search(r"NAMA GURU\s*:\s*(.*)", text)
                 nama_guru = match_nama.group(1).split("GURU KELAS")[0].strip() if match_nama else "Unknown"
                 
@@ -42,39 +43,47 @@ def muat_data_pdf(file_path):
                 if not table: continue
                 
                 for row in table:
-                    hari = str(row[0]).strip().upper() if row[0] else ""
-                    if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
+                    # Ambil Hari (Kolum 0)
+                    hari_raw = str(row[0]).strip().upper() if row[0] else ""
+                    if hari_raw in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
                         
+                        # PROSES BARIS: Hanya isi slot kosong jika ia diapit oleh subjek yang sama
                         temp_row = list(row)
                         for i in range(1, len(temp_row)):
-                            # Logik tarik data dari slot sebelah kiri (untuk merged cells)
+                            # Jika kotak ini None atau kosong
                             if temp_row[i] is None or str(temp_row[i]).strip() == "":
-                                if i > 1 and i != 7: # Elak tarik masuk ke slot rehat (7)
-                                    val_sebelum = temp_row[i-1]
-                                    if val_sebelum:
-                                        temp_row[i] = val_sebelum
+                                # KITA HANYA TARIK jika slot sebelum ADA isi, dan slot selepas juga ADA isi yang sama
+                                # Atau jika kita yakin ini adalah merged cell (biasanya maks 2-3 slot)
+                                if 1 < i < len(temp_row) - 1:
+                                    prev_val = temp_row[i-1]
+                                    # Untuk elak redundant sampai petang, kita hanya tarik satu kali sahaja
+                                    if prev_val and i != 7: # i != 7 untuk elak tarik masuk waktu REHAT
+                                        temp_row[i] = prev_val
                             
+                            # Membaiki ralat 'NoneType' dengan menukar ke string dahulu
                             isi_final = str(temp_row[i]).replace("\n", " ").strip() if temp_row[i] else ""
                             
-                            if isi_final and isi_final.lower() != "none":
-                                mula, tamat = (PETA_JUMAAT if hari == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
-                                slot_id = f"{nama_guru}_{hari}_{i}"
+                            # Abaikan jika hasil tukaran adalah teks "None" atau kosong
+                            if isi_final and isi_final.lower() != "none" and isi_final != "":
+                                mula, tamat = (PETA_JUMAAT if hari_raw == "JUMAAT" else PETA_BIASA).get(i, ("-","-"))
+                                slot_id = f"{nama_guru}_{hari_raw}_{i}"
                                 all_data.append({
                                     "id": slot_id, 
                                     "Guru": nama_guru, 
-                                    "Hari": hari, 
+                                    "Hari": hari_raw, 
                                     "Isi": isi_final, 
                                     "Masa": f"{mula}-{tamat}"
                                 })
         return pd.DataFrame(all_data)
     except Exception as e:
+        st.error(f"Ralat semasa membaca PDF: {e}")
         return pd.DataFrame()
 
 # --- UTAMA ---
 st.title("📊 e-PdP Tracker SMK Kinarut")
 
 try:
-    # 1. Pastikan nama fail PDF ini betul di GitHub anda
+    # Pastikan fail PDF diletakkan dalam folder yang sama di GitHub
     NAMA_FAIL_PDF = "Tracker.pdf" 
     df_jadual = muat_data_pdf(NAMA_FAIL_PDF)
     
@@ -82,7 +91,7 @@ try:
 
     with tab_rekod:
         if df_jadual.empty:
-            st.error(f"Fail '{NAMA_FAIL_PDF}' tidak ditemui atau kosong. Sila muat naik fail ke GitHub.")
+            st.error(f"Fail '{NAMA_FAIL_PDF}' tidak ditemui atau ralat semasa memproses. Sila pastikan fail wujud di GitHub.")
         else:
             col_side1, col_side2 = st.columns([1, 3])
             
@@ -90,7 +99,7 @@ try:
                 pilihan_guru = st.selectbox("Pilih Nama Guru:", sorted(df_jadual['Guru'].unique()))
                 hari_pilihan = st.radio("Pilih Hari:", ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"])
                 tarikh_pantau = st.date_input("Tarikh Pantau:", datetime.now())
-                if st.button("🗑️ Kosongkan Tanda"):
+                if st.button("🗑️ Kosongkan Pilihan"):
                     st.session_state.rekod_temp = {}
                     st.rerun()
 
@@ -104,8 +113,8 @@ try:
                     for idx, row in enumerate(jadual_guru.itertuples()):
                         with grid[idx % 3]:
                             is_selected = row.id in st.session_state.rekod_temp
-                            status_color = "🔴" if is_selected else "🟢"
-                            with st.expander(f"{status_color} {row.Masa}", expanded=True):
+                            st_color = "🔴" if is_selected else "🟢"
+                            with st.expander(f"{st_color} {row.Masa}", expanded=True):
                                 st.write(f"**{row.Isi}**")
                                 if is_selected:
                                     if st.button("Batal", key=f"btn_{row.id}"):
@@ -123,6 +132,7 @@ try:
                                         }
                                         st.rerun()
 
+            # BAHAGIAN HANTAR DATA
             if st.session_state.rekod_temp:
                 st.divider()
                 df_to_save = pd.DataFrame(list(st.session_state.rekod_temp.values()))
@@ -131,12 +141,14 @@ try:
                 
                 if st.button("🚀 HANTAR LAPORAN SEKARANG"):
                     try:
+                        # Ambil data sedia ada tanpa cache
                         existing_data = conn.read(ttl=0)
                         df_new = df_to_save.copy()
                         
                         if existing_data is not None and not existing_data.empty:
                             existing_data = existing_data.dropna(how='all')
                             updated_data = pd.concat([existing_data, df_new], ignore_index=True)
+                            # Buang pendua
                             updated_data = updated_data.drop_duplicates(subset=['Tarikh', 'Nama Guru', 'Masa', 'Subjek/Kelas'], keep='first')
                         else:
                             updated_data = df_new
@@ -144,11 +156,11 @@ try:
                         conn.update(data=updated_data)
                         st.session_state.rekod_temp = {}
                         st.balloons()
-                        st.success("✅ Berjaya disimpan!")
+                        st.success("✅ Rekod berjaya disimpan!")
                         time.sleep(2)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Gagal Simpan: {e}")
+                        st.error(f"Gagal Simpan ke Google Sheets: {e}")
 
     with tab_analisis:
         st.header("📈 Analisis & Laporan")
@@ -158,12 +170,10 @@ try:
             df_full['Tarikh'] = pd.to_datetime(df_full['Tarikh'], errors='coerce')
             df_full = df_full.dropna(subset=['Tarikh'])
             
-            # Analisis Guru
-            st.subheader("📊 Jam PdP Terbiar mengikut Guru")
+            st.subheader("📊 Bilangan Slot PdP Terbiar")
             g_stats = df_full['Nama Guru'].value_counts().reset_index()
             g_stats.columns = ['Nama Guru', 'Slot']
-            g_stats['Jam'] = (g_stats['Slot'] * 30) / 60
-            st.bar_chart(data=g_stats, x='Nama Guru', y='Jam')
+            st.bar_chart(data=g_stats, x='Nama Guru', y='Slot')
             
             st.divider()
             st.subheader("📋 Rekod Terperinci")
@@ -172,4 +182,4 @@ try:
             st.info("Pangkalan data masih kosong.")
 
 except Exception as e:
-    st.error(f"Ralat: {e}")
+    st.error(f"Ralat Sistem: {e}")
