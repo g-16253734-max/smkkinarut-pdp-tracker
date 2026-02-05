@@ -110,15 +110,34 @@ try:
             if st.session_state.rekod_temp:
                 st.divider()
                 df_to_save = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-                st.write("### Senarai Untuk Dihantar ke Google Sheets:")
+                st.write("### Senarai Untuk Dihantar:")
                 st.table(df_to_save)
+                
                 if st.button("🚀 HANTAR LAPORAN SEKARANG"):
-                    existing_data = conn.read()
-                    updated_data = pd.concat([existing_data, df_to_save], ignore_index=True)
-                    conn.update(data=updated_data)
-                    st.session_state.rekod_temp = {}
-                    st.success("Rekod berjaya dihantar!")
-                    st.balloons()
+                    try:
+                        # 1. AMBIL data sedia ada dari Google Sheets
+                        existing_data = conn.read()
+                        
+                        # 2. GABUNGKAN data lama dengan data baru (Append)
+                        if existing_data is not None and not existing_data.empty:
+                            # Bersihkan sebarang baris kosong (jika ada)
+                            existing_data = existing_data.dropna(how='all')
+                            updated_data = pd.concat([existing_data, df_to_save], ignore_index=True)
+                        else:
+                            updated_data = df_to_save
+                        
+                        # 3. SIMPAN semula semua data yang telah digabungkan
+                        conn.update(data=updated_data)
+                        
+                        # Kosongkan memori sementara selepas berjaya
+                        st.session_state.rekod_temp = {}
+                        st.success("Rekod berjaya ditambah ke dalam pangkalan data!")
+                        st.balloons()
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Gagal mengemaskini Google Sheets: {e}")
+
 
     with tab_analisis:
         st.header("📈 Analisis Ketidakhadiran Strategik")
@@ -192,3 +211,4 @@ try:
 
 except Exception as e:
     st.error(f"Ralat sistem: {e}")
+
