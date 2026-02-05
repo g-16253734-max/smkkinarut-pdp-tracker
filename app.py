@@ -38,13 +38,22 @@ def muat_data_pdf(file_path):
     return pd.DataFrame(all_data)
 
 # --- FUNGSI SIMPAN KE EXCEL ---
-def simpan_ke_excel(data_baru):
-    if os.path.exists(FAIL_REKOD):
-        df_lama = pd.read_excel(FAIL_REKOD)
-        df_final = pd.concat([df_lama, data_baru], ignore_index=True)
-    else:
-        df_final = data_baru
-    df_final.to_excel(FAIL_REKOD, index=False)
+from streamlit_gsheets import GSheetsConnection
+
+# --- SAMBUNGAN KE GOOGLE SHEETS ---
+url = "MASUKKAN_URL_GOOGLE_SHEET_ANDA_DI_SINI"
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def simpan_ke_google_sheets(data_baru):
+    # Baca data sedia ada dari Google Sheets
+    df_lama = conn.read(spreadsheet=url)
+    
+    # Gabungkan data lama dan baru
+    df_final = pd.concat([df_lama, data_baru], ignore_index=True)
+    
+    # Simpan semula ke Google Sheets
+    conn.update(spreadsheet=url, data=df_final)
+    st.success("✅ Rekod telah dikemaskini di Google Sheets!")
 
 # --- UI ---
 st.title("📊 e-PdP Tracker SMK Kinarut")
@@ -199,4 +208,5 @@ if os.path.exists(FAIL_REKOD):
     else:
         st.warning("Tiada rekod dijumpai dalam julat tarikh tersebut.")
 else:
+
     st.info("Sila hantar laporan pertama anda untuk melihat analisis.")
