@@ -41,7 +41,7 @@ def muat_data_pdf(file_path):
 from streamlit_gsheets import GSheetsConnection
 
 # --- SAMBUNGAN KE GOOGLE SHEETS ---
-url = "MASUKKAN_URL_GOOGLE_SHEET_ANDA_DI_SINI"
+url = "https://docs.google.com/spreadsheets/d/1FejQegOpXyjCgCw3b5Gi-qMV6Xdkoetb6WL6T4zpjcw/edit?gid=0#gid=0"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def simpan_ke_google_sheets(data_baru):
@@ -210,3 +210,4 @@ if os.path.exists(FAIL_REKOD):
 else:
 
     st.info("Sila hantar laporan pertama anda untuk melihat analisis.")
+
