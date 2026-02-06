@@ -91,12 +91,14 @@ with tab1:
                 for row in filtered.itertuples():
                     is_recorded = row.id in st.session_state.rekod_temp
                     
-                    # Konfigurasi Butang
+                    # --- PAPARAN BARU YANG LEBIH BERSIH ---
                     if is_recorded:
-                        label_btn = f"🔴 BATAL: {row.Masa} | {row.Subjek_Kelas}"
+                        # Tunjuk "BATAL" dan nama kelas sahaja bila sudah ditekan
+                        label_btn = f"🔴 BATAL: {row.Subjek_Kelas}"
                         tipe_btn = "primary"
                     else:
-                        label_btn = f"🟢 {row.Masa} | {row.Subjek_Kelas} ({row.Minit} min) - Tanda Tidak Hadir"
+                        # Buang row.Masa di depan, hanya tunjuk Subjek/Kelas dan Tanda Tidak Hadir
+                        label_btn = f"🟢 {row.Subjek_Kelas} - Tanda Tidak Hadir"
                         tipe_btn = "secondary"
                     
                     if st.button(label_btn, key=row.id, use_container_width=True, type=tipe_btn):
@@ -166,3 +168,4 @@ with tab2:
             st.info("Sila masukkan data pertama untuk melihat analisis.")
     except:
         st.info("Sila masukkan data pertama untuk melihat analisis.")
+
