@@ -3,7 +3,7 @@ import pdfplumber
 import pandas as pd
 import re
 import os
-from datetime import datetime
+from datetime import datetime, timedelta # Tambah timedelta di sini
 from streamlit_gsheets import GSheetsConnection
 import time
 
@@ -110,7 +110,7 @@ with tab1:
                                 "Nama Guru": row.Guru,
                                 "Subjek_Kelas": row.Subjek_Kelas,
                                 "Minit": row.Minit,
-                                "Waktu_Rekod": datetime.now().strftime("%H:%M")
+                                "Waktu_Rekod": (datetime.now() + timedelta(hours=8)).strftime("%H:%M")
                             }
                         st.rerun()
         
@@ -168,4 +168,5 @@ with tab2:
             st.info("Sila masukkan data pertama untuk melihat analisis.")
     except:
         st.info("Sila masukkan data pertama untuk melihat analisis.")
+
 
