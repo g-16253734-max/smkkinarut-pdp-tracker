@@ -44,7 +44,6 @@ def muat_data_pdf(file_path):
                                 isi_bersih = str(isi_raw).replace("\n", " ").strip()
                                 
                                 if len(isi_bersih) > 3 and "REHAT" not in isi_bersih.upper():
-                                    # Kira Minit dari teks (cth: 10:10-11:10)
                                     minit_pdp = 30 
                                     times = re.findall(r"(\d{1,2}[:.]\d{2})", isi_bersih)
                                     if len(times) >= 2:
@@ -74,7 +73,7 @@ with tab1:
     if not df_jadual.empty:
         col1, col2 = st.columns([1, 2.5])
         with col1:
-            # LOGIK BARU: Pilih Tarikh, Hari dikesan automatik
+            # 1. Pilih Tarikh
             tarikh_pilih = st.date_input("Pilih Tarikh Pantauan:", waktu_sekarang())
             
             hari_map = {
@@ -83,41 +82,48 @@ with tab1:
             }
             hari_auto = hari_map.get(tarikh_pilih.strftime("%A"))
             
-            st.info(f"Hari dikesan: **{hari_auto}**")
+            # Ganti "Hari Dikesan" kepada "Hari"
+            st.info(f"Hari: **{hari_auto}**")
             
-            pilihan_guru = st.selectbox("Pilih Nama Guru:", sorted(df_jadual['Guru'].unique()))
+            # 2. Pilih Nama Guru (Dengan Placeholder Kosong)
+            senarai_guru = ["-- Pilih Nama Guru --"] + sorted(df_jadual['Guru'].unique().tolist())
+            pilihan_guru = st.selectbox("Pilih Nama Guru:", senarai_guru)
         
         with col2:
-            # Filter jadual ikut Guru dan Hari yang dikesan automatik
-            filtered = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == hari_auto)]
-            
-            if filtered.empty:
-                st.warning(f"Tiada jadual untuk {pilihan_guru} pada hari {hari_auto}.")
-            else:
-                st.subheader(f"Jadual: {pilihan_guru} ({hari_auto})")
-                for row in filtered.itertuples():
-                    is_recorded = row.id in st.session_state.rekod_temp
-                    
-                    if is_recorded:
-                        label_btn = f"🔴 BATAL: {row.Subjek_Kelas}"
-                        tipe_btn = "primary"
-                    else:
-                        label_btn = f"🟢 {row.Subjek_Kelas} - Tanda Tidak Hadir"
-                        tipe_btn = "secondary"
-                    
-                    if st.button(label_btn, key=row.id, use_container_width=True, type=tipe_btn):
+            # Hanya tunjuk jadual jika nama guru sudah dipilih
+            if pilihan_guru != "-- Pilih Nama Guru --":
+                filtered = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == hari_auto)]
+                
+                if filtered.empty:
+                    st.warning(f"Tiada jadual untuk {pilihan_guru} pada hari {hari_auto}.")
+                else:
+                    st.subheader(f"Jadual: {pilihan_guru} ({hari_auto})")
+                    for row in filtered.itertuples():
+                        is_recorded = row.id in st.session_state.rekod_temp
+                        
                         if is_recorded:
-                            del st.session_state.rekod_temp[row.id]
+                            label_btn = f"🔴 BATAL: {row.Subjek_Kelas}"
+                            tipe_btn = "primary"
                         else:
-                            st.session_state.rekod_temp[row.id] = {
-                                "Tarikh": tarikh_pilih.strftime("%Y-%m-%d"),
-                                "Hari": hari_auto,
-                                "Nama Guru": row.Guru,
-                                "Subjek_Kelas": row.Subjek_Kelas,
-                                "Minit": row.Minit,
-                                "Waktu_Rekod": (datetime.now() + timedelta(hours=8)).strftime("%H:%M")
-                            }
-                        st.rerun()
+                            label_btn = f"🟢 {row.Subjek_Kelas} - Tanda Tidak Hadir"
+                            tipe_btn = "secondary"
+                        
+                        if st.button(label_btn, key=row.id, use_container_width=True, type=tipe_btn):
+                            if is_recorded:
+                                del st.session_state.rekod_temp[row.id]
+                            else:
+                                st.session_state.rekod_temp[row.id] = {
+                                    "Tarikh": tarikh_pilih.strftime("%Y-%m-%d"),
+                                    "Hari": hari_auto,
+                                    "Nama Guru": row.Guru,
+                                    "Subjek_Kelas": row.Subjek_Kelas,
+                                    "Minit": row.Minit,
+                                    "Waktu_Rekod": (datetime.now() + timedelta(hours=8)).strftime("%H:%M")
+                                }
+                            st.rerun()
+            else:
+                # Paparan semasa aplikasi baru dibuka
+                st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
         
         # Simpan ke Google Sheets
         if st.session_state.rekod_temp:
@@ -148,23 +154,4 @@ with tab1:
                     st.error(f"Ralat: {e}")
 
 with tab2:
-    st.header("📈 Analisis PdP Terbiar")
-    try:
-        df_full = conn.read(ttl=0)
-        if df_full is not None and not df_full.empty:
-            df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                st.subheader("Jumlah Jam Terbiar (Guru)")
-                sum_guru = df_full.groupby('Nama Guru')['Minit'].sum() / 60
-                st.bar_chart(sum_guru)
-            with c2:
-                st.subheader("Kekerapan (Subjek/Kelas)")
-                st.bar_chart(df_full['Subjek_Kelas'].value_counts())
-                
-            st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
-        else:
-            st.info("Tiada data untuk dianalisis.")
-    except:
-        st.info("Sila masukkan data pertama dahulu.")
+    st
