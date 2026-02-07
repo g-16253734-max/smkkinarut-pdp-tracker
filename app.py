@@ -38,14 +38,22 @@ def muat_data_pdf(file_path):
                             if isi_raw and str(isi_raw).strip() != "":
                                 isi_bersih = str(isi_raw).replace("\n", " ").strip()
                                 if len(isi_bersih) > 3 and "REHAT" not in isi_bersih.upper():
-                                    minit_pdp = 30 
+                                    
+                                    # --- LOGIK PENGIRAAN MASA BARU ---
+                                    minit_pdp = 30 # Default jika gagal kesan
                                     times = re.findall(r"(\d{1,2}[:.]\d{2})", isi_bersih)
                                     if len(times) >= 2:
                                         try:
                                             t1 = datetime.strptime(times[0].replace('.', ':'), '%H:%M')
                                             t2 = datetime.strptime(times[1].replace('.', ':'), '%H:%M')
-                                            minit_pdp = int((t2 - t1).total_seconds() / 60)
+                                            diff = int((t2 - t1).total_seconds() / 60)
+                                            
+                                            # Jika negatif (cth: 12.30 - 1.30), tambah 12 jam (720 minit)
+                                            if diff < 0:
+                                                diff += 720
+                                            minit_pdp = diff
                                         except: minit_pdp = 30
+                                    
                                     all_data.append({
                                         "id": f"{nama_guru}_{hari}_{i}_{isi_bersih[:10]}",
                                         "Guru": nama_guru,
@@ -56,21 +64,17 @@ def muat_data_pdf(file_path):
         return pd.DataFrame(all_data)
     except: return pd.DataFrame()
 
-# --- FUNGSI PEMBERSIHAN LEBIH PADU ---
+# --- FUNGSI PEMBERSIHAN (SUBJEK & KELAS) ---
 def proses_teks_pdp(teks):
-    # 1. Buang masa (Contoh: 07:30-08:30, 07.30, 08:30)
-    # Kita buang semua corak nombor yang ada titik atau titik bertindih di tengah
+    # Buang semua corak nombor masa
     teks_bersih = re.sub(r'\d{1,2}[:.]\d{2}', '', teks)
-    
-    # 2. Buang sempang yang tertinggal (Contoh: "ASK 3 JATI - ")
+    # Buang sempang/ruang di hujung
     teks_bersih = re.sub(r'[-\s]+$', '', teks_bersih).strip()
     
-    # 3. Asingkan Subjek dan Kelas
-    # Kita cari angka 3 (Tingkatan 3) sebagai pembahagi
+    # Asingkan Subjek & Kelas (Cari angka 3)
     match = re.search(r"(.*?)\s+(3\s?\w+.*)", teks_bersih)
     if match:
         subjek = match.group(1).strip()
-        # Buang baki simbol di hujung nama kelas jika ada
         kelas = re.sub(r'[-\s]+$', '', match.group(2)).strip()
         return subjek, kelas
     
@@ -123,6 +127,7 @@ with tab1:
             else:
                 st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
         
+        # --- LAPORAN SEMENTARA DENGAN BUTANG BATAL INDIVIDU ---
         if st.session_state.rekod_temp:
             st.divider()
             st.write("### 📋 Laporan Sementara (Belum Dihantar)")
@@ -164,8 +169,8 @@ with tab2:
                 st.bar_chart(df_full.groupby(c_sub)['Minit'].sum() / 60)
             with colC:
                 st.subheader("🏫 By Kelas")
-                # Kita filter keluar kelas "30" atau "Lain-lain" yang mungkin terhasil dari ralat
-                df_clean_kelas = df_full[~df_full['Kelas'].isin(['30', 'Lain-lain'])] if 'Kelas' in df_full.columns else df_full
+                # Tapis kelas sampah (angka-angka saki baki masa)
+                df_clean_kelas = df_full[~df_full['Kelas'].str.contains(r'^\d+$', na=False)] if 'Kelas' in df_full.columns else df_full
                 c_kel = 'Kelas' if 'Kelas' in df_full.columns else 'Subjek_Kelas'
                 st.bar_chart(df_clean_kelas.groupby(c_kel)['Minit'].sum() / 60)
                 
