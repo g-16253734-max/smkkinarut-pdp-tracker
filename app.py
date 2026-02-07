@@ -73,7 +73,7 @@ with tab1:
     if not df_jadual.empty:
         col1, col2 = st.columns([1, 2.5])
         with col1:
-            # 1. Pilih Tarikh
+            # 1. Pilih Tarikh (Format paparan widget tetap ikut sistem, tapi simpanan ikut DD/MM/YYYY)
             tarikh_pilih = st.date_input("Pilih Tarikh Pantauan:", waktu_sekarang())
             
             hari_map = {
@@ -82,15 +82,14 @@ with tab1:
             }
             hari_auto = hari_map.get(tarikh_pilih.strftime("%A"))
             
-            # Ganti "Hari Dikesan" kepada "Hari"
+            # Label Hari sahaja (tiada lagi dikesan kuman/penyakit hehe)
             st.info(f"Hari: **{hari_auto}**")
             
-            # 2. Pilih Nama Guru (Dengan Placeholder Kosong)
+            # 2. Pilih Nama Guru (Mula dengan pilihan kosong)
             senarai_guru = ["-- Pilih Nama Guru --"] + sorted(df_jadual['Guru'].unique().tolist())
             pilihan_guru = st.selectbox("Pilih Nama Guru:", senarai_guru)
         
         with col2:
-            # Hanya tunjuk jadual jika nama guru sudah dipilih
             if pilihan_guru != "-- Pilih Nama Guru --":
                 filtered = df_jadual[(df_jadual['Guru'] == pilihan_guru) & (df_jadual['Hari'] == hari_auto)]
                 
@@ -113,7 +112,8 @@ with tab1:
                                 del st.session_state.rekod_temp[row.id]
                             else:
                                 st.session_state.rekod_temp[row.id] = {
-                                    "Tarikh": tarikh_pilih.strftime("%Y-%m-%d"),
+                                    # FORMAT TARIKH DITUKAR KE DD/MM/YYYY
+                                    "Tarikh": tarikh_pilih.strftime("%d/%m/%Y"),
                                     "Hari": hari_auto,
                                     "Nama Guru": row.Guru,
                                     "Subjek_Kelas": row.Subjek_Kelas,
@@ -122,7 +122,6 @@ with tab1:
                                 }
                             st.rerun()
             else:
-                # Paparan semasa aplikasi baru dibuka
                 st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
         
         # Simpan ke Google Sheets
@@ -154,4 +153,8 @@ with tab1:
                     st.error(f"Ralat: {e}")
 
 with tab2:
-    st
+    st.header("📈 Analisis PdP Terbiar")
+    try:
+        df_full = conn.read(ttl=0)
+        if df_full is not None and not df_full.empty:
+            df
