@@ -122,7 +122,7 @@ with tab1:
                                 }
                             st.rerun()
             else:
-                st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
+                st.info("Sila pilih nama guru untuk memulakan pemantauan.")
         
         # Simpan ke Google Sheets
         if st.session_state.rekod_temp:
@@ -173,3 +173,4 @@ with tab2:
             st.info("Tiada data untuk dianalisis.")
     except:
         st.info("Sila masukkan data pertama dahulu.")
+
