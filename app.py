@@ -56,18 +56,22 @@ def muat_data_pdf(file_path):
         return pd.DataFrame(all_data)
     except: return pd.DataFrame()
 
-# --- FUNGSI PEMBERSIHAN TOTAL (SUBJEK & KELAS) ---
+# --- FUNGSI PEMBERSIHAN LEBIH PADU ---
 def proses_teks_pdp(teks):
-    # 1. Buang semua corak masa (Contoh: 07:30-08:30 atau 07.30 - 08.30)
-    # Regex ini mencari angka:angka - angka:angka
-    teks_bersih = re.sub(r'\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}', '', teks).strip()
+    # 1. Buang masa (Contoh: 07:30-08:30, 07.30, 08:30)
+    # Kita buang semua corak nombor yang ada titik atau titik bertindih di tengah
+    teks_bersih = re.sub(r'\d{1,2}[:.]\d{2}', '', teks)
     
-    # 2. Cari Tingkatan (Contoh: 3 JATI, 3 ARIF)
-    # Kita pecahkan teks: Segala-galanya sebelum "3" adalah Subjek, bermula dari "3" adalah Kelas.
+    # 2. Buang sempang yang tertinggal (Contoh: "ASK 3 JATI - ")
+    teks_bersih = re.sub(r'[-\s]+$', '', teks_bersih).strip()
+    
+    # 3. Asingkan Subjek dan Kelas
+    # Kita cari angka 3 (Tingkatan 3) sebagai pembahagi
     match = re.search(r"(.*?)\s+(3\s?\w+.*)", teks_bersih)
     if match:
         subjek = match.group(1).strip()
-        kelas = match.group(2).strip()
+        # Buang baki simbol di hujung nama kelas jika ada
+        kelas = re.sub(r'[-\s]+$', '', match.group(2)).strip()
         return subjek, kelas
     
     return teks_bersih, "Lain-lain"
@@ -104,7 +108,6 @@ with tab1:
                             if is_recorded:
                                 del st.session_state.rekod_temp[row.id]
                             else:
-                                # Proses pembersihan di sini
                                 subjek_saja, kelas_saja = proses_teks_pdp(row.Subjek_Kelas)
                                 st.session_state.rekod_temp[row.id] = {
                                     "Tarikh": tarikh_pilih.strftime("%d/%m/%Y"),
@@ -120,7 +123,6 @@ with tab1:
             else:
                 st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
         
-        # --- LAPORAN SEMENTARA DENGAN BUTANG BATAL INDIVIDU ---
         if st.session_state.rekod_temp:
             st.divider()
             st.write("### 📋 Laporan Sementara (Belum Dihantar)")
@@ -143,7 +145,7 @@ with tab1:
                 except:
                     conn.update(data=df_preview)
                 st.session_state.rekod_temp = {}
-                st.balloons(); st.success("Data berjaya disimpan!"); time.sleep(1); st.rerun()
+                st.balloons(); st.success("Data disimpan!"); time.sleep(1); st.rerun()
 
 with tab2:
     st.header("📈 Analisis PdP Terbiar")
@@ -152,7 +154,6 @@ with tab2:
         if df_full is not None and not df_full.empty:
             df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
             
-            # --- ANALISIS JAM (JAM = MINIT / 60) ---
             colA, colB, colC = st.columns(3)
             with colA:
                 st.subheader("👤 By Guru")
@@ -163,12 +164,12 @@ with tab2:
                 st.bar_chart(df_full.groupby(c_sub)['Minit'].sum() / 60)
             with colC:
                 st.subheader("🏫 By Kelas")
+                # Kita filter keluar kelas "30" atau "Lain-lain" yang mungkin terhasil dari ralat
+                df_clean_kelas = df_full[~df_full['Kelas'].isin(['30', 'Lain-lain'])] if 'Kelas' in df_full.columns else df_full
                 c_kel = 'Kelas' if 'Kelas' in df_full.columns else 'Subjek_Kelas'
-                st.bar_chart(df_full.groupby(c_kel)['Minit'].sum() / 60)
+                st.bar_chart(df_clean_kelas.groupby(c_kel)['Minit'].sum() / 60)
                 
             st.divider()
             st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
-        else:
-            st.info("Tiada data untuk dianalisis.")
     except:
-        st.info("Sila masukkan data pertama.")
+        st.info("Sila masukkan data.")
