@@ -157,4 +157,19 @@ with tab2:
     try:
         df_full = conn.read(ttl=0)
         if df_full is not None and not df_full.empty:
-            df
+            df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("Jumlah Jam Terbiar (Guru)")
+                sum_guru = df_full.groupby('Nama Guru')['Minit'].sum() / 60
+                st.bar_chart(sum_guru)
+            with c2:
+                st.subheader("Kekerapan (Subjek/Kelas)")
+                st.bar_chart(df_full['Subjek_Kelas'].value_counts())
+                
+            st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
+        else:
+            st.info("Tiada data untuk dianalisis.")
+    except:
+        st.info("Sila masukkan data pertama dahulu.")
