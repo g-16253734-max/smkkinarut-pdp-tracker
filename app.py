@@ -56,11 +56,21 @@ def muat_data_pdf(file_path):
         return pd.DataFrame(all_data)
     except: return pd.DataFrame()
 
-def pecah_subjek_kelas(teks):
-    match = re.search(r"(.*)\s(3\s?\w+.*)", teks)
+# --- FUNGSI PEMBERSIHAN TOTAL (SUBJEK & KELAS) ---
+def proses_teks_pdp(teks):
+    # 1. Buang semua corak masa (Contoh: 07:30-08:30 atau 07.30 - 08.30)
+    # Regex ini mencari angka:angka - angka:angka
+    teks_bersih = re.sub(r'\d{1,2}[:.]\d{2}\s*-\s*\d{1,2}[:.]\d{2}', '', teks).strip()
+    
+    # 2. Cari Tingkatan (Contoh: 3 JATI, 3 ARIF)
+    # Kita pecahkan teks: Segala-galanya sebelum "3" adalah Subjek, bermula dari "3" adalah Kelas.
+    match = re.search(r"(.*?)\s+(3\s?\w+.*)", teks_bersih)
     if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return teks, "Lain-lain"
+        subjek = match.group(1).strip()
+        kelas = match.group(2).strip()
+        return subjek, kelas
+    
+    return teks_bersih, "Lain-lain"
 
 # --- ANTARAMUKA (UI) ---
 st.title("📊 e-PdP Tracker SMK Kinarut")
@@ -94,7 +104,8 @@ with tab1:
                             if is_recorded:
                                 del st.session_state.rekod_temp[row.id]
                             else:
-                                subjek_saja, kelas_saja = pecah_subjek_kelas(row.Subjek_Kelas)
+                                # Proses pembersihan di sini
+                                subjek_saja, kelas_saja = proses_teks_pdp(row.Subjek_Kelas)
                                 st.session_state.rekod_temp[row.id] = {
                                     "Tarikh": tarikh_pilih.strftime("%d/%m/%Y"),
                                     "Hari": hari_auto,
@@ -109,46 +120,30 @@ with tab1:
             else:
                 st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
         
-        # --- BAHAGIAN BARU: LAPORAN SEMENTARA DENGAN BUTANG BATAL INDIVIDU ---
+        # --- LAPORAN SEMENTARA DENGAN BUTANG BATAL INDIVIDU ---
         if st.session_state.rekod_temp:
             st.divider()
             st.write("### 📋 Laporan Sementara (Belum Dihantar)")
-            
-            # Kita guna loop untuk buat table manual supaya ada butang di hujung
-            header_col = st.columns([1.5, 2, 3, 1, 1])
-            header_col[0].write("**Tarikh**")
-            header_col[1].write("**Nama Guru**")
-            header_col[2].write("**Subjek/Kelas**")
-            header_col[3].write("**Minit**")
-            header_col[4].write("**Tindakan**")
-            
             for key, val in list(st.session_state.rekod_temp.items()):
-                row_col = st.columns([1.5, 2, 3, 1, 1])
-                row_col[0].write(val['Tarikh'])
-                row_col[1].write(val['Nama Guru'])
-                row_col[2].write(val['Subjek_Kelas'])
-                row_col[3].write(str(val['Minit']))
-                if row_col[4].button("🗑️", key=f"del_{key}"):
+                r_col = st.columns([1.5, 2, 3, 1, 1])
+                r_col[0].write(val['Tarikh'])
+                r_col[1].write(val['Nama Guru'])
+                r_col[2].write(val['Subjek_Kelas'])
+                r_col[3].write(f"{val['Minit']} m")
+                if r_col[4].button("🗑️", key=f"del_{key}"):
                     del st.session_state.rekod_temp[key]
                     st.rerun()
             
-            st.write("")
             if st.button("🚀 HANTAR SEMUA KE GOOGLE SHEETS", type="primary", use_container_width=True):
+                df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
                 try:
-                    df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-                    try:
-                        existing_data = conn.read(ttl=0)
-                        updated_data = pd.concat([existing_data, df_preview], ignore_index=True).drop_duplicates()
-                    except:
-                        updated_data = df_preview
-                    
-                    conn.update(data=updated_data)
-                    st.session_state.rekod_temp = {}
-                    st.balloons()
-                    st.success("Semua data berjaya disimpan!")
-                    time.sleep(1); st.rerun()
-                except Exception as e:
-                    st.error(f"Ralat: {e}")
+                    existing = conn.read(ttl=0)
+                    updated = pd.concat([existing, df_preview], ignore_index=True).drop_duplicates()
+                    conn.update(data=updated)
+                except:
+                    conn.update(data=df_preview)
+                st.session_state.rekod_temp = {}
+                st.balloons(); st.success("Data berjaya disimpan!"); time.sleep(1); st.rerun()
 
 with tab2:
     st.header("📈 Analisis PdP Terbiar")
@@ -157,22 +152,23 @@ with tab2:
         if df_full is not None and not df_full.empty:
             df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
             
+            # --- ANALISIS JAM (JAM = MINIT / 60) ---
             colA, colB, colC = st.columns(3)
             with colA:
                 st.subheader("👤 By Guru")
                 st.bar_chart(df_full.groupby('Nama Guru')['Minit'].sum() / 60)
             with colB:
                 st.subheader("📚 By Subjek")
-                col_subjek = 'Subjek' if 'Subjek' in df_full.columns else 'Subjek_Kelas'
-                st.bar_chart(df_full[col_subjek].value_counts())
+                c_sub = 'Subjek' if 'Subjek' in df_full.columns else 'Subjek_Kelas'
+                st.bar_chart(df_full.groupby(c_sub)['Minit'].sum() / 60)
             with colC:
                 st.subheader("🏫 By Kelas")
-                col_kelas = 'Kelas' if 'Kelas' in df_full.columns else 'Subjek_Kelas'
-                st.bar_chart(df_full[col_kelas].value_counts())
+                c_kel = 'Kelas' if 'Kelas' in df_full.columns else 'Subjek_Kelas'
+                st.bar_chart(df_full.groupby(c_kel)['Minit'].sum() / 60)
                 
             st.divider()
             st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
         else:
             st.info("Tiada data untuk dianalisis.")
     except:
-        st.info("Sila masukkan data pertama dahulu.")
+        st.info("Sila masukkan data pertama.")
