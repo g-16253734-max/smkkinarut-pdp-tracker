@@ -56,10 +56,7 @@ def muat_data_pdf(file_path):
         return pd.DataFrame(all_data)
     except: return pd.DataFrame()
 
-# --- FUNGSI ASINGKAN SUBJEK & KELAS ---
 def pecah_subjek_kelas(teks):
-    # Logik: Biasanya kelas Tingkatan 3 bermula dengan angka 3 (cth: 3 JATI, 3 ARIF)
-    # Kita cari corak angka diikuti perkataan
     match = re.search(r"(.*)\s(3\s?\w+.*)", teks)
     if match:
         return match.group(1).strip(), match.group(2).strip()
@@ -112,23 +109,46 @@ with tab1:
             else:
                 st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
         
+        # --- BAHAGIAN BARU: LAPORAN SEMENTARA DENGAN BUTANG BATAL INDIVIDU ---
         if st.session_state.rekod_temp:
             st.divider()
-            st.write("### Senarai Laporan Sementara")
-            df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-            st.table(df_preview[['Tarikh', 'Nama Guru', 'Subjek_Kelas', 'Minit']])
-            if st.button("🚀 HANTAR KE GOOGLE SHEETS", type="primary", use_container_width=True):
+            st.write("### 📋 Laporan Sementara (Belum Dihantar)")
+            
+            # Kita guna loop untuk buat table manual supaya ada butang di hujung
+            header_col = st.columns([1.5, 2, 3, 1, 1])
+            header_col[0].write("**Tarikh**")
+            header_col[1].write("**Nama Guru**")
+            header_col[2].write("**Subjek/Kelas**")
+            header_col[3].write("**Minit**")
+            header_col[4].write("**Tindakan**")
+            
+            for key, val in list(st.session_state.rekod_temp.items()):
+                row_col = st.columns([1.5, 2, 3, 1, 1])
+                row_col[0].write(val['Tarikh'])
+                row_col[1].write(val['Nama Guru'])
+                row_col[2].write(val['Subjek_Kelas'])
+                row_col[3].write(str(val['Minit']))
+                if row_col[4].button("🗑️", key=f"del_{key}"):
+                    del st.session_state.rekod_temp[key]
+                    st.rerun()
+            
+            st.write("")
+            if st.button("🚀 HANTAR SEMUA KE GOOGLE SHEETS", type="primary", use_container_width=True):
                 try:
-                    existing_data = conn.read(ttl=0)
-                    updated_data = pd.concat([existing_data, df_preview], ignore_index=True).drop_duplicates()
+                    df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
+                    try:
+                        existing_data = conn.read(ttl=0)
+                        updated_data = pd.concat([existing_data, df_preview], ignore_index=True).drop_duplicates()
+                    except:
+                        updated_data = df_preview
+                    
                     conn.update(data=updated_data)
                     st.session_state.rekod_temp = {}
                     st.balloons()
-                    st.success("Data berjaya disimpan!")
+                    st.success("Semua data berjaya disimpan!")
                     time.sleep(1); st.rerun()
-                except:
-                    conn.update(data=df_preview)
-                    st.session_state.rekod_temp = {}; st.rerun()
+                except Exception as e:
+                    st.error(f"Ralat: {e}")
 
 with tab2:
     st.header("📈 Analisis PdP Terbiar")
@@ -137,27 +157,18 @@ with tab2:
         if df_full is not None and not df_full.empty:
             df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
             
-            # --- 3 ANALISIS UTAMA ---
             colA, colB, colC = st.columns(3)
-            
             with colA:
                 st.subheader("👤 By Guru")
                 st.bar_chart(df_full.groupby('Nama Guru')['Minit'].sum() / 60)
-                st.caption("Jumlah Jam mengikut Guru")
-
             with colB:
                 st.subheader("📚 By Subjek")
-                # Jika kolum Subjek belum ada (data lama), kita guna Subjek_Kelas
                 col_subjek = 'Subjek' if 'Subjek' in df_full.columns else 'Subjek_Kelas'
                 st.bar_chart(df_full[col_subjek].value_counts())
-                st.caption("Kekerapan mengikut Mata Pelajaran")
-
             with colC:
                 st.subheader("🏫 By Kelas")
-                # Jika kolum Kelas belum ada (data lama), kita buat default
                 col_kelas = 'Kelas' if 'Kelas' in df_full.columns else 'Subjek_Kelas'
                 st.bar_chart(df_full[col_kelas].value_counts())
-                st.caption("Kekerapan mengikut Kelas")
                 
             st.divider()
             st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
