@@ -12,6 +12,7 @@ st.set_page_config(page_title="e-PdP Tracker SMK Kinarut", layout="wide")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def waktu_sekarang():
+    # Menyesuaikan waktu kepada GMT+8 (Waktu Malaysia)
     return datetime.now() + timedelta(hours=8)
 
 if 'rekod_temp' not in st.session_state:
@@ -28,8 +29,10 @@ def muat_data_pdf(file_path):
                 text = page.extract_text()
                 match_nama = re.search(r"NAMA GURU\s*:\s*(.*)", text)
                 nama_guru = match_nama.group(1).split("GURU KELAS")[0].strip() if match_nama else "Unknown"
+                
                 table = page.extract_table()
                 if not table: continue
+                
                 for row in table:
                     hari = str(row[0]).strip().upper() if row[0] else ""
                     if hari in ["ISNIN", "SELASA", "RABU", "KHAMIS", "JUMAAT"]:
@@ -37,9 +40,9 @@ def muat_data_pdf(file_path):
                             isi_raw = row[i]
                             if isi_raw and str(isi_raw).strip() != "":
                                 isi_bersih = str(isi_raw).replace("\n", " ").strip()
+                                
                                 if len(isi_bersih) > 3 and "REHAT" not in isi_bersih.upper():
-                                    
-                                    # PENGIRAAN MASA (Baiki isu negatif/12 jam)
+                                    # LOGIK MASA: Baiki isu negatif (cth: 12.30 - 1.30)
                                     minit_pdp = 30 
                                     times = re.findall(r"(\d{1,2}[:.]\d{2})", isi_bersih)
                                     if len(times) >= 2:
@@ -47,7 +50,7 @@ def muat_data_pdf(file_path):
                                             t1 = datetime.strptime(times[0].replace('.', ':'), '%H:%M')
                                             t2 = datetime.strptime(times[1].replace('.', ':'), '%H:%M')
                                             diff = int((t2 - t1).total_seconds() / 60)
-                                            if diff < 0: diff += 720
+                                            if diff < 0: diff += 720 # Tambah 12 jam jika negatif
                                             minit_pdp = diff
                                         except: minit_pdp = 30
                                     
@@ -61,22 +64,21 @@ def muat_data_pdf(file_path):
         return pd.DataFrame(all_data)
     except: return pd.DataFrame()
 
-# --- FUNGSI PEMBERSIHAN BARU (LEBIH GARANG) ---
+# --- FUNGSI PEMBERSIHAN (SUBJEK & KELAS) ---
 def proses_teks_pdp(teks):
     # 1. Buang semua waktu (cth: 07:30, 08:30, 10.30)
     teks_bersih = re.sub(r'\d{1,2}[:.]\d{2}', '', teks)
     
-    # 2. Buang simbol pelik di hujung
+    # 2. Buang simbol pelik/sempang di hujung
     teks_bersih = re.sub(r'[-\s/]+$', '', teks_bersih).strip()
 
-    # 3. Cari Nama Kelas (Mencari perkataan bermula dengan angka 3)
-    # Cth: "BAHASA MELAYU 3 JATI" -> Subjek: BAHASA MELAYU, Kelas: 3 JATI
+    # 3. Asingkan Subjek & Kelas (Cari angka 3 sebagai pembahagi)
+    # Mencari teks sebelum angka 3 (Subjek) dan bermula dari angka 3 (Kelas)
     match = re.search(r"(.*?)\s+(3\s[A-Z]+.*)", teks_bersih)
     
     if match:
         subjek = match.group(1).strip()
         kelas = match.group(2).strip()
-        # Jika subjek kosong, mungkin susunan terbalik
         if not subjek: subjek = "Lain-lain"
         return subjek, kelas
     
@@ -92,10 +94,13 @@ with tab1:
     if not df_jadual.empty:
         col1, col2 = st.columns([1, 2.5])
         with col1:
+            # Pilihan Tarikh & Hari
             tarikh_pilih = st.date_input("Pilih Tarikh Pantauan:", waktu_sekarang())
             hari_map = {"Monday": "ISNIN", "Tuesday": "SELASA", "Wednesday": "RABU", "Thursday": "KHAMIS", "Friday": "JUMAAT", "Saturday": "SABTU", "Sunday": "AHAD"}
             hari_auto = hari_map.get(tarikh_pilih.strftime("%A"))
             st.info(f"Hari: **{hari_auto}**")
+            
+            # Pilihan Guru
             senarai_guru = ["-- Pilih Nama Guru --"] + sorted(df_jadual['Guru'].unique().tolist())
             pilihan_guru = st.selectbox("Pilih Nama Guru:", senarai_guru)
         
@@ -110,6 +115,7 @@ with tab1:
                         is_recorded = row.id in st.session_state.rekod_temp
                         label_btn = f"🔴 BATAL: {row.Subjek_Kelas}" if is_recorded else f"🟢 {row.Subjek_Kelas} - Tanda Tidak Hadir"
                         tipe_btn = "primary" if is_recorded else "secondary"
+                        
                         if st.button(label_btn, key=row.id, use_container_width=True, type=tipe_btn):
                             if is_recorded:
                                 del st.session_state.rekod_temp[row.id]
@@ -127,11 +133,12 @@ with tab1:
                                 }
                             st.rerun()
             else:
-                st.info("Sila pilih nama guru di sebelah kiri.")
+                st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
 
-        # --- LAPORAN SEMENTARA ---
+        # --- LAPORAN SEMENTARA DENGAN BUTANG BATAL ---
         if st.session_state.rekod_temp:
             st.divider()
+            st.write("### 📋 Laporan Sementara (Belum Dihantar)")
             for key, val in list(st.session_state.rekod_temp.items()):
                 r_col = st.columns([1.5, 2, 3, 1, 1])
                 r_col[0].write(val['Tarikh'])
@@ -142,16 +149,29 @@ with tab1:
                     del st.session_state.rekod_temp[key]
                     st.rerun()
             
-            if st.button("🚀 HANTAR KE GOOGLE SHEETS", type="primary", use_container_width=True):
+            if st.button("🚀 HANTAR SEMUA KE GOOGLE SHEETS", type="primary", use_container_width=True):
                 df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
-                try:
-                    existing = conn.read(ttl=0)
-                    updated = pd.concat([existing, df_preview], ignore_index=True).drop_duplicates()
-                    conn.update(data=updated)
-                except:
-                    conn.update(data=df_preview)
-                st.session_state.rekod_temp = {}
-                st.balloons(); st.success("Data disimpan!"); time.sleep(1); st.rerun()
+                with st.spinner('Menyimpan ke Google Sheets...'):
+                    try:
+                        # Baca dan Gabung Data
+                        try:
+                            existing = conn.read(ttl=0)
+                            if existing is not None and not existing.empty:
+                                updated = pd.concat([existing, df_preview], ignore_index=True).drop_duplicates()
+                            else:
+                                updated = df_preview
+                        except:
+                            updated = df_preview
+                        
+                        # Kemaskini Google Sheets
+                        conn.update(data=updated)
+                        st.session_state.rekod_temp = {}
+                        st.balloons()
+                        st.success("Semua data berjaya disimpan!")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Ralat API: {e}. Sila cuba sebentar lagi.")
 
 with tab2:
     st.header("📈 Analisis PdP Terbiar")
@@ -160,10 +180,10 @@ with tab2:
         if df_full is not None and not df_full.empty:
             df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
             
-            # --- FILTER KERAS UNTUK SAMPAH (KELAS 30 / LAIN-LAIN) ---
-            # Kita hanya ambil rekod yang Kelasnya ada perkataan (bukan nombor sahaja)
+            # --- FILTER DATA BERSIH UNTUK GRAF ---
             df_analisis = df_full.copy()
             if 'Kelas' in df_analisis.columns:
+                # Tapis kelas yang ada huruf sahaja (buang kelas sampah seperti '30' atau '00')
                 df_analisis = df_analisis[df_analisis['Kelas'].str.contains('[A-Za-z]', na=False)]
                 df_analisis = df_analisis[~df_analisis['Kelas'].isin(['Lain-lain'])]
 
@@ -181,6 +201,9 @@ with tab2:
                 st.bar_chart(df_analisis.groupby(c_kel)['Minit'].sum() / 60)
                 
             st.divider()
+            st.write("### Data Mentah")
             st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
+        else:
+            st.info("Tiada data ditemui dalam Google Sheets.")
     except:
-        st.info("Sila masukkan data.")
+        st.info("Sila masukkan rekod pertama untuk melihat analisis.")
