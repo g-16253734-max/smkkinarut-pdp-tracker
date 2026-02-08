@@ -39,18 +39,15 @@ def muat_data_pdf(file_path):
                                 isi_bersih = str(isi_raw).replace("\n", " ").strip()
                                 if len(isi_bersih) > 3 and "REHAT" not in isi_bersih.upper():
                                     
-                                    # --- LOGIK PENGIRAAN MASA BARU ---
-                                    minit_pdp = 30 # Default jika gagal kesan
+                                    # PENGIRAAN MASA (Baiki isu negatif/12 jam)
+                                    minit_pdp = 30 
                                     times = re.findall(r"(\d{1,2}[:.]\d{2})", isi_bersih)
                                     if len(times) >= 2:
                                         try:
                                             t1 = datetime.strptime(times[0].replace('.', ':'), '%H:%M')
                                             t2 = datetime.strptime(times[1].replace('.', ':'), '%H:%M')
                                             diff = int((t2 - t1).total_seconds() / 60)
-                                            
-                                            # Jika negatif (cth: 12.30 - 1.30), tambah 12 jam (720 minit)
-                                            if diff < 0:
-                                                diff += 720
+                                            if diff < 0: diff += 720
                                             minit_pdp = diff
                                         except: minit_pdp = 30
                                     
@@ -64,18 +61,23 @@ def muat_data_pdf(file_path):
         return pd.DataFrame(all_data)
     except: return pd.DataFrame()
 
-# --- FUNGSI PEMBERSIHAN (SUBJEK & KELAS) ---
+# --- FUNGSI PEMBERSIHAN BARU (LEBIH GARANG) ---
 def proses_teks_pdp(teks):
-    # Buang semua corak nombor masa
+    # 1. Buang semua waktu (cth: 07:30, 08:30, 10.30)
     teks_bersih = re.sub(r'\d{1,2}[:.]\d{2}', '', teks)
-    # Buang sempang/ruang di hujung
-    teks_bersih = re.sub(r'[-\s]+$', '', teks_bersih).strip()
     
-    # Asingkan Subjek & Kelas (Cari angka 3)
-    match = re.search(r"(.*?)\s+(3\s?\w+.*)", teks_bersih)
+    # 2. Buang simbol pelik di hujung
+    teks_bersih = re.sub(r'[-\s/]+$', '', teks_bersih).strip()
+
+    # 3. Cari Nama Kelas (Mencari perkataan bermula dengan angka 3)
+    # Cth: "BAHASA MELAYU 3 JATI" -> Subjek: BAHASA MELAYU, Kelas: 3 JATI
+    match = re.search(r"(.*?)\s+(3\s[A-Z]+.*)", teks_bersih)
+    
     if match:
         subjek = match.group(1).strip()
-        kelas = re.sub(r'[-\s]+$', '', match.group(2)).strip()
+        kelas = match.group(2).strip()
+        # Jika subjek kosong, mungkin susunan terbalik
+        if not subjek: subjek = "Lain-lain"
         return subjek, kelas
     
     return teks_bersih, "Lain-lain"
@@ -125,12 +127,11 @@ with tab1:
                                 }
                             st.rerun()
             else:
-                st.info("Sila pilih nama guru di sebelah kiri untuk memulakan pemantauan.")
-        
-        # --- LAPORAN SEMENTARA DENGAN BUTANG BATAL INDIVIDU ---
+                st.info("Sila pilih nama guru di sebelah kiri.")
+
+        # --- LAPORAN SEMENTARA ---
         if st.session_state.rekod_temp:
             st.divider()
-            st.write("### 📋 Laporan Sementara (Belum Dihantar)")
             for key, val in list(st.session_state.rekod_temp.items()):
                 r_col = st.columns([1.5, 2, 3, 1, 1])
                 r_col[0].write(val['Tarikh'])
@@ -141,7 +142,7 @@ with tab1:
                     del st.session_state.rekod_temp[key]
                     st.rerun()
             
-            if st.button("🚀 HANTAR SEMUA KE GOOGLE SHEETS", type="primary", use_container_width=True):
+            if st.button("🚀 HANTAR KE GOOGLE SHEETS", type="primary", use_container_width=True):
                 df_preview = pd.DataFrame(list(st.session_state.rekod_temp.values()))
                 try:
                     existing = conn.read(ttl=0)
@@ -159,20 +160,25 @@ with tab2:
         if df_full is not None and not df_full.empty:
             df_full['Minit'] = pd.to_numeric(df_full['Minit'], errors='coerce').fillna(0)
             
+            # --- FILTER KERAS UNTUK SAMPAH (KELAS 30 / LAIN-LAIN) ---
+            # Kita hanya ambil rekod yang Kelasnya ada perkataan (bukan nombor sahaja)
+            df_analisis = df_full.copy()
+            if 'Kelas' in df_analisis.columns:
+                df_analisis = df_analisis[df_analisis['Kelas'].str.contains('[A-Za-z]', na=False)]
+                df_analisis = df_analisis[~df_analisis['Kelas'].isin(['Lain-lain'])]
+
             colA, colB, colC = st.columns(3)
             with colA:
                 st.subheader("👤 By Guru")
-                st.bar_chart(df_full.groupby('Nama Guru')['Minit'].sum() / 60)
+                st.bar_chart(df_analisis.groupby('Nama Guru')['Minit'].sum() / 60)
             with colB:
                 st.subheader("📚 By Subjek")
-                c_sub = 'Subjek' if 'Subjek' in df_full.columns else 'Subjek_Kelas'
-                st.bar_chart(df_full.groupby(c_sub)['Minit'].sum() / 60)
+                c_sub = 'Subjek' if 'Subjek' in df_analisis.columns else 'Subjek_Kelas'
+                st.bar_chart(df_analisis.groupby(c_sub)['Minit'].sum() / 60)
             with colC:
                 st.subheader("🏫 By Kelas")
-                # Tapis kelas sampah (angka-angka saki baki masa)
-                df_clean_kelas = df_full[~df_full['Kelas'].str.contains(r'^\d+$', na=False)] if 'Kelas' in df_full.columns else df_full
-                c_kel = 'Kelas' if 'Kelas' in df_full.columns else 'Subjek_Kelas'
-                st.bar_chart(df_clean_kelas.groupby(c_kel)['Minit'].sum() / 60)
+                c_kel = 'Kelas' if 'Kelas' in df_analisis.columns else 'Subjek_Kelas'
+                st.bar_chart(df_analisis.groupby(c_kel)['Minit'].sum() / 60)
                 
             st.divider()
             st.dataframe(df_full.sort_values('Tarikh', ascending=False), use_container_width=True)
